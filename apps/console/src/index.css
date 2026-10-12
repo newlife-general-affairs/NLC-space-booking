@@ -1,0 +1,396 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ── 60-30-10 accessible colour system ───────────────── */
+  :root {
+    --bg:           #07111f;
+    --bg-raised:    #10233d;
+    --bg-overlay:   #18314f;
+    --border:       rgba(203,213,225,0.22);
+    --border-hover: rgba(240,180,77,0.58);
+    --text:         #f8fafc;
+    --text-muted:   #cbd5e1;
+    --text-faint:   #94a3b8;
+    --brand:        #f0b44d;
+    --brand-hover:  #f4c166;
+    --brand-ink:    #281503;
+    --brand-soft:   rgba(240,180,77,0.16);
+    --brand-muted:  rgba(240,180,77,0.08);
+    --success:      #34d399;
+    --danger:       #fb7185;
+    --warning:      #fbbf24;
+    color-scheme: dark;
+  }
+
+  html, body, #root {
+    height: 100%;
+    min-height: 100%;
+  }
+
+  body {
+    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    background-color: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv11", "ss01";
+    letter-spacing: -0.011em;
+  }
+
+  button, a, input, select, textarea {
+    touch-action: manipulation;
+  }
+
+  /* ── Scrollbar ──────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(203,213,225,0.32);
+    border-radius: 99px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(240,180,77,0.58);
+  }
+
+  /* ── Selection ──────────────────────────────────────────── */
+  ::selection {
+    background: #f0b44d;
+    color: #281503;
+  }
+
+  /* ── Focus visible global ───────────────────────────────── */
+  :focus-visible {
+    outline: 3px solid var(--brand);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  /* ── Card base ──────────────────────────────────────────── */
+  .card {
+    @apply bg-surface-raised border border-slate-300/20 rounded-2xl shadow-card
+           transition-all duration-200;
+  }
+  .card-hover {
+    @apply hover:border-indigo-400/60 hover:shadow-card-hover hover:-translate-y-px;
+  }
+  .card-brand {
+    @apply hover:border-indigo-400/60 hover:shadow-glow-sm;
+  }
+
+  /* ── Button base ────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl
+           text-sm font-semibold transition-all duration-150 select-none
+           active:scale-[0.97] disabled:opacity-40 disabled:pointer-events-none
+           focus-visible:outline-2 focus-visible:outline-indigo-500;
+  }
+  .btn-primary {
+    @apply btn bg-indigo-600 hover:bg-indigo-500 text-white shadow-glow-sm hover:shadow-glow;
+  }
+  .btn-ghost {
+    @apply btn text-slate-300 hover:text-white hover:bg-white/[0.10];
+  }
+  .btn-outline {
+    @apply btn border border-slate-300/30 hover:border-indigo-400/60 text-slate-200 hover:text-white hover:bg-white/[0.08];
+  }
+  .btn-danger {
+    @apply btn bg-rose-600/90 hover:bg-rose-500 text-white;
+  }
+
+  /* ── Input base ─────────────────────────────────────────── */
+  .input {
+    @apply w-full bg-surface-raised border border-slate-300/30 rounded-xl px-4 py-3
+           text-sm text-white placeholder:text-slate-400
+           transition-colors duration-150
+           focus:outline-none focus:border-indigo-500/60 focus:bg-white/[0.06]
+           focus:ring-1 focus:ring-indigo-500/30;
+  }
+
+  /* ── Label ──────────────────────────────────────────────── */
+  .label {
+    @apply block text-xs font-semibold text-slate-300 mb-2 tracking-wide uppercase;
+  }
+
+  /* ── Badge ──────────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full
+           text-[11px] font-semibold tracking-wide;
+  }
+  .badge-brand {
+    @apply badge bg-indigo-500/15 text-indigo-300 border border-indigo-500/20;
+  }
+  .badge-success {
+    @apply badge bg-emerald-500/15 text-emerald-300 border border-emerald-500/20;
+  }
+  .badge-danger {
+    @apply badge bg-rose-500/15 text-rose-300 border border-rose-500/20;
+  }
+  .badge-warning {
+    @apply badge bg-amber-500/15 text-amber-300 border border-amber-500/20;
+  }
+  .badge-muted {
+    @apply badge bg-white/[0.06] text-white/50 border border-white/[0.08];
+  }
+
+  /* ── Divider ────────────────────────────────────────────── */
+  .divider {
+    @apply border-t border-white/[0.06];
+  }
+
+  /* ── Gradient text ──────────────────────────────────────── */
+  .gradient-text {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70;
+  }
+  .gradient-text-brand {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-violet-400;
+  }
+
+  /* ── Glass overlay ──────────────────────────────────────── */
+  .glass {
+    @apply bg-white/[0.04] backdrop-blur-xl border border-white/[0.08];
+  }
+  .glass-dark {
+    @apply bg-black/50 backdrop-blur-xl border border-white/[0.06];
+  }
+
+  /* ── Section heading ────────────────────────────────────── */
+  .section-label {
+    @apply text-xs font-semibold text-slate-300 uppercase tracking-widest;
+  }
+
+  /* ── Skeleton shimmer ───────────────────────────────────── */
+  .skeleton {
+    @apply rounded-lg animate-shimmer
+           bg-gradient-to-r from-white/[0.04] via-white/[0.08] to-white/[0.04]
+           bg-[length:200%_100%];
+  }
+}
+
+@layer utilities {
+  /* ── Stagger animation delays ─────────────────────────── */
+  .delay-50  { animation-delay: 50ms; }
+  .delay-100 { animation-delay: 100ms; }
+  .delay-150 { animation-delay: 150ms; }
+  .delay-200 { animation-delay: 200ms; }
+  .delay-300 { animation-delay: 300ms; }
+
+  /* ── Hide scrollbar but keep scroll ────────────────────── */
+  .scrollbar-hidden {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hidden::-webkit-scrollbar { display: none; }
+
+  /* ── Subtle noise texture ───────────────────────────────── */
+  .noise {
+    position: relative;
+  }
+  .noise::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    border-radius: inherit;
+    opacity: 0.5;
+  }
+}
+
+/* ── Responsive product shells ─────────────────────────────────────────── */
+.mobile-app-nav {
+  position: fixed;
+  z-index: 60;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  min-height: 64px;
+  padding: 7px 8px calc(7px + env(safe-area-inset-bottom));
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid rgba(203,213,225,.24);
+  border-radius: 22px;
+  background: rgba(7,17,31,.94);
+  box-shadow: 0 18px 45px rgba(0,0,0,.42);
+  backdrop-filter: blur(22px);
+}
+.mobile-app-nav button {
+  min-width: 0;
+  min-height: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: 15px;
+  color: #cbd5e1;
+  font-size: 10px;
+  font-weight: 700;
+  transition: color .18s ease, background-color .18s ease, transform .18s ease;
+}
+.mobile-app-nav button:active { transform: scale(.94); }
+.mobile-app-nav button.is-active {
+  color: #f4c166;
+  background: rgba(240,180,77,.16);
+}
+
+/* WCAG 2.2 AA: raise low-opacity text left by legacy utility classes. */
+.text-white\/20,
+.text-white\/25,
+.text-white\/30,
+.text-white\/35,
+.text-white\/40,
+.text-white\/45 { color: var(--text-muted) !important; }
+
+.user-home .text-zinc-500,
+.user-home .text-zinc-600,
+.user-home .text-zinc-555 { color: #cbd5e1 !important; }
+
+/* Unscoped (not just `.admin-workspace`): SuperAdminPanel and other routes
+   outside that wrapper render these same low-contrast utility classes and
+   need the same AA fix. */
+.text-slate-400 { color: #475569 !important; }
+.text-rose-500 { color: #be123c !important; }
+.text-amber-600 { color: #92400e !important; }
+.text-emerald-600 { color: #047857 !important; }
+
+/* WCAG 2.2 (1.4.4 Resize text / legibility): the console is a work tool read
+   all day by staff, and text-xs / arbitrary sub-12px sizes were reported as
+   too small to read comfortably. Raise the whole app's small-text floor. */
+.text-xs { font-size: 0.8125rem !important; line-height: 1.25rem !important; } /* 12px -> 13px */
+.text-\[9px\]  { font-size: 11px !important; }
+.text-\[10px\] { font-size: 11px !important; }
+.text-\[11px\] { font-size: 12px !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.booking-progress-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 700;
+}
+.booking-progress-step span {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #64748b;
+}
+.booking-progress-step small { font-size: 11px; }
+.booking-progress-step.is-active { color: #4338ca; }
+.booking-progress-step.is-active span {
+  color: white;
+  background: #4f46e5;
+  box-shadow: 0 0 0 5px rgba(99,102,241,.1);
+}
+
+.admin-sidebar {
+  position: sticky;
+  top: 0;
+  height: calc(100dvh - 4rem);
+  overflow-y: auto;
+}
+.admin-content { height: calc(100dvh - 4rem); }
+.admin-workspace button { letter-spacing: -.005em; }
+.admin-workspace input,
+.admin-workspace select,
+.admin-workspace textarea { color-scheme: light; }
+
+@media (max-width: 767px) {
+  .app-header { box-shadow: 0 8px 28px rgba(0,0,0,.18); }
+
+  .user-home {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .user-home > div:first-child { border-radius: 20px; }
+  .user-home button { -webkit-tap-highlight-color: transparent; }
+  .user-home .grid { gap: 12px; }
+  .user-home h3 { font-size: 15px; }
+  .user-home button.rounded-3xl { border-radius: 20px; }
+  .branch-picker .grid { grid-template-columns: 1fr 1fr; }
+  .branch-picker .grid button { min-height: 148px; }
+
+  .booking-app {
+    min-height: calc(100dvh - 56px);
+    background: #f8fafc;
+    color: #0f172a;
+    padding-bottom: calc(92px + env(safe-area-inset-bottom));
+  }
+  .booking-stepbar {
+    position: sticky;
+    top: 56px;
+    z-index: 30;
+    min-height: 68px;
+    padding: 10px 14px;
+    background: rgba(255,255,255,.94);
+    border-bottom: 1px solid #e2e8f0;
+    backdrop-filter: blur(16px);
+  }
+  .booking-back {
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    color: #334155;
+  }
+  .booking-back span { display: none; }
+  .booking-progress-step small { display: none; }
+  .booking-sheet {
+    margin: 12px;
+    border-radius: 22px;
+    padding: 20px;
+    box-shadow: 0 12px 36px rgba(15,23,42,.08);
+  }
+  .booking-app input,
+  .booking-app select,
+  .booking-app textarea {
+    min-height: 48px;
+    border-radius: 13px;
+    font-size: 16px;
+    color-scheme: light;
+  }
+  .booking-app label { font-size: 13px; }
+  .booking-primary-action {
+    min-height: 54px;
+    margin-top: 24px;
+    border-radius: 16px;
+    box-shadow: 0 12px 26px rgba(79,70,229,.25);
+  }
+  .booking-confirm-action {
+    width: 100%;
+    min-height: 54px;
+    border-radius: 16px;
+  }
+  .booking-app img { min-height: 132px; }
+  .booking-app .grid-cols-2 { gap: 10px; }
+
+  .admin-workspace {
+    min-height: calc(100dvh - 56px);
+  }
+  .admin-content { height: auto; min-height: 100%; }
+}
+
+@media (min-width: 768px) {
+  .admin-workspace {
+    background: #f8fafc;
+  }
+  .admin-sidebar nav button { min-height: 40px; }
+  .booking-sheet { box-shadow: 0 20px 55px rgba(15,23,42,.12); }
+}

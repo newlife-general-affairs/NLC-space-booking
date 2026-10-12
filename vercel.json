@@ -1,0 +1,30 @@
+{
+    "builds": [
+        {
+            "src": "apps/member/package.json",
+            "use": "@vercel/static-build",
+            "config": { "distDir": "dist" }
+        },
+        {
+            "src": "backend/index.js",
+            "use": "@vercel/node"
+        }
+    ],
+    "routes": [
+        {
+            "src": "/api/(.*)",
+            "dest": "/backend/index.js"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "/apps/member/$1"
+        },
+        {
+            "handle": "filesystem"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "/apps/member/index.html"
+        }
+    ]
+}

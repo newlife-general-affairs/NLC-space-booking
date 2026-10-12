@@ -1,0 +1,24 @@
+{
+  "name": "space-booking-system",
+  "version": "1.0.0",
+  "description": "Root workspace: member PWA + admin console + shared package + backend API",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "install:all": "npm install && npm install --prefix backend",
+    "dev:member": "npm run dev --workspace @church/member",
+    "dev:console": "npm run dev --workspace @church/console",
+    "dev:backend": "cd backend && npm start",
+    "start": "concurrently -n backend,member,console -c blue,green,magenta \"cd backend && npm start\" \"npm run dev --workspace @church/member\" \"npm run dev --workspace @church/console\"",
+    "build": "npm run build --workspace @church/member && npm run build --workspace @church/console",
+    "build:member": "npm run build --workspace @church/member",
+    "build:console": "npm run build --workspace @church/console",
+    "lint": "npm run lint --workspace @church/member && npm run lint --workspace @church/console"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

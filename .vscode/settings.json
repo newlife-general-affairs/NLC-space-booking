@@ -1,0 +1,21 @@
+{
+  // 關閉 VS Code 內建 CSS 驗證（Tailwind 的 @tailwind / @apply / @layer 會被誤判為未知規則）
+  "css.validate": false,
+  "less.validate": false,
+  "scss.validate": false,
+
+  // 讓 Tailwind IntelliSense 接管 CSS 檔案的語言支援
+  "editor.quickSuggestions": {
+    "strings": true
+  },
+
+  // 告訴 CSS 語言服務器認識 Tailwind 自訂 at-rule（需安裝 Tailwind CSS IntelliSense 擴充套件）
+  "tailwindCSS.includeLanguages": {
+    "plaintext": "html"
+  },
+
+  // 讓檔案關聯正確（可選，幫助 IntelliSense）
+  "files.associations": {
+    "*.css": "tailwindcss"
+  }
+}

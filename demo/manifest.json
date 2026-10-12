@@ -1,0 +1,56 @@
+{
+  "type": "micro-apps/v1.1",
+  "appName": "tuya",
+  "supportedPlatform": [
+    "DESKTOP"
+  ],
+  "annotations": {
+    "sdf.cli:microFramework": "REACT_TS",
+    "sdf.feat:colorTheme": true,
+    "sdf.feat:i18n": "DYNAMIC"
+  },
+  "universalId": "18268631-bc6e-4e59-b009-a2045fb91edd",
+  "appEngine": "MICRO-FRONTEND",
+  "name": "lang.name",
+  "defaultMenuIcon": {
+    "type": "tuyaIcon",
+    "name": "sat_factory_modeling"
+  },
+  "description": "lang.description",
+  "entries": [],
+  "configs": [],
+  "privileges": [
+    {
+      "name": "lang.edit",
+      "code": "EDIT"
+    },
+    {
+      "name": "lang.delete",
+      "code": "DELETE"
+    }
+  ],
+  "apis": [
+    {
+      "namespace": "",
+      "method": "GET",
+      "path": "/v1.0/users",
+      "privilegeCode": "",
+      "type": "OpenAPI"
+    },
+    {
+      "namespace": "",
+      "method": "PUT",
+      "path": "/v1.0/users",
+      "privilegeCode": "EDIT",
+      "type": "OpenAPI"
+    },
+    {
+      "namespace": "",
+      "method": "DELETE",
+      "path": "/v1.0/users",
+      "privilegeCode": "DELETE",
+      "type": "OpenAPI"
+    }
+  ],
+  "dependencies": []
+}

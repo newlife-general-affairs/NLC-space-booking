@@ -1,0 +1,256 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ── 暖色淺色設計系統 ─────────────────────────────────────
+     對應 docs/前後台拆分與使用者端PWA重構-設計報告.md §4.4 色票表 */
+  :root {
+    --bg:             #FAF8F5;
+    --surface:        #FFFFFF;
+    --surface-sunken: #F1ECE4;
+    --border:         #E5DED3;
+    --ink:            #1F1D1B;
+    --ink-soft:       #5B5750;
+    --ink-faint:      #6B665D;
+    --primary:        #3A4E8C;
+    --primary-ink:    #FFFFFF;
+    --primary-soft:   #EAEEF7;
+    --accent:         #E0982F;
+    --success:        #2E7D53;
+    --warning:        #A96A16;
+    --danger:         #B4302B;
+    color-scheme: light;
+  }
+
+  html, body, #root {
+    height: 100%;
+    min-height: 100%;
+  }
+
+  body {
+    font-family: 'Inter', 'Noto Sans TC', system-ui, -apple-system, 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+    background-color: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv11", "ss01";
+    letter-spacing: -0.011em;
+  }
+
+  button, a, input, select, textarea {
+    touch-action: manipulation;
+  }
+
+  /* iOS 若 input 字級 < 16px 會自動放大整頁，一律鎖 16px 起跳 */
+  input, select, textarea {
+    font-size: 16px;
+  }
+
+  /* ── Scrollbar ──────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(31,29,27,0.16);
+    border-radius: 99px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(224,152,47,0.45);
+  }
+
+  /* ── Selection ──────────────────────────────────────────── */
+  ::selection {
+    background: var(--primary);
+    color: var(--primary-ink);
+  }
+
+  /* ── Focus visible global ───────────────────────────────── */
+  :focus-visible {
+    outline: 3px solid var(--primary);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  /* ── Card base ──────────────────────────────────────────── */
+  .card {
+    @apply bg-surface border border-border rounded-2xl shadow-card
+           transition-all duration-200;
+  }
+  .card-hover {
+    @apply hover:border-primary/40 hover:shadow-card-hover hover:-translate-y-px;
+  }
+
+  /* ── Button base ────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 min-h-[48px] rounded-xl
+           text-sm font-semibold transition-all duration-150 select-none
+           active:scale-[0.97] disabled:opacity-40 disabled:pointer-events-none
+           focus-visible:outline-2 focus-visible:outline-primary;
+  }
+  .btn-primary {
+    @apply btn bg-primary hover:bg-primary-hover text-primary-ink shadow-card;
+  }
+  .btn-secondary {
+    @apply btn bg-surface-sunken hover:bg-border/60 text-ink;
+  }
+  .btn-ghost {
+    @apply btn text-ink-soft hover:text-ink hover:bg-surface-sunken;
+  }
+  .btn-outline {
+    @apply btn border border-border hover:border-primary/50 text-ink hover:bg-surface-sunken;
+  }
+  .btn-danger {
+    @apply btn bg-danger hover:opacity-90 text-white;
+  }
+
+  /* ── Input base ─────────────────────────────────────────── */
+  .input {
+    @apply w-full bg-surface border border-border rounded-xl px-4 min-h-[48px]
+           text-base text-ink placeholder:text-ink-faint
+           transition-colors duration-150
+           focus:outline-none focus:border-primary/60
+           focus:ring-1 focus:ring-primary/25;
+  }
+
+  /* ── Label ──────────────────────────────────────────────── */
+  .label {
+    @apply block text-sm font-semibold text-ink-soft mb-1.5;
+  }
+
+  /* ── Badge / status pill ────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full
+           text-xs font-bold tracking-wide;
+  }
+  .badge-brand   { @apply badge bg-primary-soft text-primary; }
+  .badge-success { @apply badge bg-success/10 text-success; }
+  .badge-danger  { @apply badge bg-danger/10 text-danger; }
+  .badge-warning { @apply badge bg-warning/10 text-warning; }
+  .badge-muted   { @apply badge bg-surface-sunken text-ink-faint; }
+
+  /* ── Divider ────────────────────────────────────────────── */
+  .divider {
+    @apply border-t border-border;
+  }
+
+  /* ── Section heading ────────────────────────────────────── */
+  .section-label {
+    @apply text-xs font-bold text-ink-faint uppercase tracking-widest;
+  }
+
+  /* ── Skeleton shimmer ───────────────────────────────────── */
+  .skeleton {
+    @apply rounded-lg animate-shimmer
+           bg-gradient-to-r from-surface-sunken via-border to-surface-sunken
+           bg-[length:200%_100%];
+  }
+}
+
+@layer utilities {
+  /* ── Stagger animation delays ─────────────────────────── */
+  .delay-50  { animation-delay: 50ms; }
+  .delay-100 { animation-delay: 100ms; }
+  .delay-150 { animation-delay: 150ms; }
+  .delay-200 { animation-delay: 200ms; }
+  .delay-300 { animation-delay: 300ms; }
+
+  /* ── Hide scrollbar but keep scroll ────────────────────── */
+  .scrollbar-hidden {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hidden::-webkit-scrollbar { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── App shell ──────────────────────────────────────────────────────────── */
+.app-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  height: 44px;
+  padding-top: env(safe-area-inset-top);
+  background: rgba(250,248,245,.92);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+
+.mobile-app-nav {
+  position: fixed;
+  z-index: 60;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  min-height: 64px;
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--border);
+  background: rgba(255,255,255,.96);
+  box-shadow: 0 -4px 20px rgba(31,29,27,.06);
+  backdrop-filter: blur(20px);
+}
+.mobile-app-nav button {
+  min-width: 0;
+  min-height: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: 14px;
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-weight: 700;
+  transition: color .18s ease, background-color .18s ease, transform .18s ease;
+}
+.mobile-app-nav button:active { transform: scale(.94); }
+.mobile-app-nav button.is-active {
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+
+/* ── Bottom sheet ───────────────────────────────────────────────────────── */
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(31,29,27,.45);
+  backdrop-filter: blur(2px);
+}
+.sheet-panel {
+  position: fixed;
+  z-index: 101;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: min(88dvh, 720px);
+  background: var(--surface);
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
+  box-shadow: var(--tw-shadow, 0 -8px 40px rgba(31,29,27,.16));
+  padding-bottom: env(safe-area-inset-bottom);
+  display: flex;
+  flex-direction: column;
+}
+.sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  margin: 10px auto 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-panel { animation: none !important; }
+}
