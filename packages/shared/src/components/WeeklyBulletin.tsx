@@ -636,7 +636,7 @@ export default function WeeklyBulletin({
                       <span className="font-bold text-slate-700">
                         {ev.date.substring(5).replace('-', '/')}（{['一', '二', '三', '四', '五', '六', '日'][idx] ?? ''}）{ev.start.substring(0, 5)}-{ev.end.substring(0, 5)} {ev.title}
                       </span>
-                      <span className="block text-[11px] text-slate-400">{ev.rooms.map(formatRoomName).join('、')}</span>
+                      <span className="block text-[11px] text-slate-400">{ev.rooms.join('、')}</span>
                     </span>
                   </button>
                 );

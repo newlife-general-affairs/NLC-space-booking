@@ -4,6 +4,8 @@ export default {
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
+    // 共用元件（週看板、特殊活動、登入頁）的 class 也要產生，否則畫面會缺樣式
+    "../../packages/shared/src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {
