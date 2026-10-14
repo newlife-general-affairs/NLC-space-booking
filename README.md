@@ -109,6 +109,18 @@ npm start
 | `npm run lint` | 檢查兩個前端 |
 | `cd backend && npm test` | 後端單元測試（Jest） |
 
+### 分支流程
+
+```
+工作分支 ──PR──▶ staging（測試）──PR──▶ main（正式）
+```
+
+* 每項改動先開 issue，再從 `main` 開工作分支來做。
+* 工作分支開 PR 合併到 `staging` 測試；確認 OK 後，再從 `staging` 開 PR 合併到 `main`。
+* `staging` 是長期分支，**不可刪除**（合併 PR 時不要勾選刪除分支）。
+
+repo 目前無法使用 GitHub 的分支保護，改由 [`.githooks/pre-push`](.githooks/pre-push) 在本機擋下以下操作：直接 push 到 `main`、刪除 `staging`、對 `staging` force push。`npm install` 會自動啟用這個 hook（[`scripts/setup-git-hooks.js`](scripts/setup-git-hooks.js)）；只 clone 沒有安裝相依套件的話，可以手動執行 `git config core.hooksPath .githooks`。
+
 ---
 
 ## 🚀 部署
