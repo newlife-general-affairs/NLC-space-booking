@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useState, useEffect } from 'react';
 import type { User } from '@supabase/supabase-js';
-import { CalendarDays, CalendarPlus, ClipboardList, Home } from 'lucide-react';
+import { CalendarDays, CalendarPlus, Home, UserRound } from 'lucide-react';
 import { useAuth } from '@church/shared/auth';
 
 import AppHeader from './components/AppHeader';
@@ -14,6 +14,8 @@ import { useAppUpdate } from './features/pwa/useAppUpdate';
 import LoginPage from './pages/LoginPage';
 import BookingPage from './pages/BookingPage';
 import HomePage from './pages/HomePage';
+import BranchPickerPage from './pages/BranchPickerPage';
+import { parseTabParam, type MemberTab } from './navigation';
 
 import { useBooking } from './hooks/useBooking';
 import { useIssueReport } from './hooks/useIssueReport';
@@ -27,21 +29,17 @@ import {
   apiFetchDisqualifiedZones,
 } from '@church/shared/api';
 
-import type { Room, Booking, ActiveTab, Announcement, UserProfile, DisqualifiedZone } from '@church/shared/types';
+import type { Room, Booking, Announcement, UserProfile, DisqualifiedZone } from '@church/shared/types';
 const WeeklyBulletin = lazy(() => import('@church/shared/components/WeeklyBulletin'));
-const SpecialEventsPage = lazy(() => import('@church/shared/components/SpecialEventsPage'));
-const AnnouncementsPage = lazy(() => import('./pages/AnnouncementsPage'));
-const RecordsPage = lazy(() => import('./pages/RecordsPage'));
+const MePage = lazy(() => import('./pages/MePage'));
 const IssueReportPage = lazy(() => import('./pages/IssueReportPage'));
 
 export default function App() {
   const { user, role, loading, accountError, retryAccountLoad, signOut, getToken, branch } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
-    const tabParam = new URLSearchParams(window.location.search).get('tab');
-    const validTabs: ActiveTab[] = ['home', 'booking', 'weekly', 'records'];
-    return (validTabs as string[]).includes(tabParam || '') ? (tabParam as ActiveTab) : 'home';
-  });
+  const [activeTab, setActiveTab] = useState<MemberTab>(() =>
+    parseTabParam(new URLSearchParams(window.location.search).get('tab'))
+  );
   const [currentBranch, setCurrentBranchState] = useState<string | null>(() => localStorage.getItem('member:selectedBranch'));
 
   const setCurrentBranch = useCallback((branch: string | null) => {
@@ -61,7 +59,6 @@ export default function App() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
 
   const [cleanupBooking, setCleanupBooking] = useState<Booking | null>(null);
-  const [issueBackTab, setIssueBackTab] = useState<'home' | 'records'>('home');
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [disqualifiedZones, setDisqualifiedZones] = useState<DisqualifiedZone[]>([]);
 
@@ -77,7 +74,7 @@ export default function App() {
     userEmail: user?.email,
     getToken,
     onSuccess: (tab) => {
-      setActiveTab(tab as ActiveTab);
+      setActiveTab(tab);
       fetchBookings();
     },
     onProfileAutoSaved: (formData) => {
@@ -116,7 +113,6 @@ export default function App() {
   useEffect(() => {
     if (user && (role === 'admin' || role === 'inspector') && branch && branch !== '全') {
       setCurrentBranch(branch);
-      setActiveTab(prev => (prev === 'branches' || prev === 'announcements' || prev === 'home') ? 'home' : prev);
     }
   }, [user, role, branch, setCurrentBranch]);
 
@@ -191,7 +187,7 @@ export default function App() {
       .catch(console.error);
   }, [user, currentBranch]);
 
-  // Fetch bookings when records or issues tab is active
+  // Fetch bookings when the me (records), issues or booking tab is active
   const fetchBookings = useCallback(() => {
     setBookings([]);
     if (!currentBranch) return;
@@ -201,7 +197,7 @@ export default function App() {
   }, [currentBranch, getToken]);
 
   useEffect(() => {
-    if (activeTab === 'records' || activeTab === 'issues' || activeTab === 'booking') {
+    if (activeTab === 'me' || activeTab === 'issues' || activeTab === 'booking') {
       fetchBookings();
     }
   }, [activeTab, fetchBookings]);
@@ -215,7 +211,7 @@ export default function App() {
 
   useEffect(() => {
     if (activeTab === 'issues' && !issueReportHook.reportingBooking) {
-      setActiveTab('records');
+      setActiveTab('me');
     }
   }, [activeTab, issueReportHook.reportingBooking]);
 
@@ -253,20 +249,7 @@ export default function App() {
   }
   return (
     <div className={`min-h-dvh font-sans bg-bg text-ink animate-fade-in ${currentBranch ? 'pb-24' : 'pb-6'}`}>
-      <AppHeader
-        user={user}
-        currentBranch={currentBranch}
-        onLogoClick={() => {
-          setCurrentBranch(null);
-          setActiveTab('home');
-        }}
-        onSwitchBranch={() => {
-          setCurrentBranch(null);
-          setActiveTab('home');
-        }}
-        onOpenProfile={profileHook.openProfile}
-        onSignOut={signOut}
-      />
+      <AppHeader currentBranch={currentBranch} onSignOut={signOut} />
 
       <main className="mx-auto max-w-lg px-4">
         <StatusToast
@@ -274,71 +257,31 @@ export default function App() {
           onDismiss={() => bookingHook.setStatusMsg({ type: '', text: '' })}
         />
 
+        {!currentBranch ? (
+          <BranchPickerPage
+            onSelectBranch={(b) => {
+              setCurrentBranch(b);
+              setActiveTab('home');
+            }}
+          />
+        ) : (
         <Suspense fallback={<div className="py-16 text-center text-sm text-[var(--ink-soft)]">載入中...</div>}>
-        {activeTab === 'home' && currentBranch && (
-          <div className="pt-4"><InstallBanner /></div>
-        )}
-
         {activeTab === 'home' && (
-          <HomePage
-            currentBranch={currentBranch}
-            role={role}
-            user={user as User & { email: string }}
-            userProfile={userProfile}
-            announcements={announcements}
-            disqualifiedZones={disqualifiedZones}
-            isAdmin={isAdmin}
-            getToken={getToken}
-            onRefresh={refreshHome}
-            onSelectBranch={(b) => {
-              setCurrentBranch(b);
-              setActiveTab('home');
-            }}
-            onTabChange={(tab) => {
-              if (tab === 'issues') {
-                setIssueBackTab('home');
-                issueReportHook.setReportingBooking(null);
-                issueReportHook.resetReport();
-              }
-              setActiveTab(tab);
-            }}
-          />
+          <>
+            <div className="pt-4"><InstallBanner /></div>
+            <HomePage
+              user={user as User & { email: string }}
+              userProfile={userProfile}
+              announcements={announcements}
+              disqualifiedZones={disqualifiedZones}
+              isAdmin={isAdmin}
+              getToken={getToken}
+              onRefresh={refreshHome}
+            />
+          </>
         )}
 
-        {activeTab === 'announcements' && (
-          <AnnouncementsPage
-            announcements={announcements}
-            onBack={() => setActiveTab('home')}
-          />
-        )}
-
-        {activeTab === 'branches' && (
-          <HomePage
-            currentBranch={null}
-            role={role}
-            user={user as User & { email: string }}
-            userProfile={userProfile}
-            announcements={announcements}
-            disqualifiedZones={disqualifiedZones}
-            isAdmin={isAdmin}
-            getToken={getToken}
-            onRefresh={refreshHome}
-            onSelectBranch={(b) => {
-              setCurrentBranch(b);
-              setActiveTab('home');
-            }}
-            onTabChange={(tab) => {
-              if (tab === 'issues') {
-                setIssueBackTab('home');
-                issueReportHook.setReportingBooking(null);
-                issueReportHook.resetReport();
-              }
-              setActiveTab(tab);
-            }}
-          />
-        )}
-
-        {activeTab === 'booking' && currentBranch && (
+        {activeTab === 'booking' && (
           <BookingPage
             getToken={getToken}
             currentBranch={currentBranch}
@@ -362,27 +305,44 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'records' && currentBranch && (
-          <RecordsPage
+        {activeTab === 'weekly' && (
+          <div className="pt-4">
+            <WeeklyBulletin
+              currentBranch={currentBranch}
+              isAdmin={false}
+              showSpecialEvents
+              onStartBooking={(date, roomId) => {
+                bookingHook.startBookingFromCalendar(date, roomId);
+                setActiveTab('booking');
+              }}
+            />
+          </div>
+        )}
+
+        {activeTab === 'me' && (
+          <MePage
+            email={user.email || ''}
+            userProfile={userProfile}
+            currentBranch={currentBranch}
             bookings={bookings}
+            onOpenProfile={profileHook.openProfile}
+            onSwitchBranch={() => {
+              setCurrentBranch(null);
+              setActiveTab('home');
+            }}
+            onSignOut={signOut}
             onStartCleanup={setCleanupBooking}
             onReportIssue={(booking) => {
-              setIssueBackTab('records');
               issueReportHook.startReporting(booking);
               setActiveTab('issues');
             }}
-            onBackToHome={() => setActiveTab('home')}
           />
         )}
 
-        {activeTab === 'issues' && currentBranch && (
+        {activeTab === 'issues' && issueReportHook.reportingBooking && (
           <IssueReportPage
             currentBranch={currentBranch}
-            selectableItems={
-              issueReportHook.reportingBooking
-                ? issueReportHook.getSelectableItems()
-                : rooms.map(r => ({ value: `room_${r.id}`, label: r.name }))
-            }
+            selectableItems={issueReportHook.getSelectableItems()}
             selectedTarget={issueReportHook.selectedIssueTarget}
             description={issueReportHook.issueDescription}
             submitting={issueReportHook.issueSubmitting}
@@ -392,32 +352,14 @@ export default function App() {
             onSubmit={issueReportHook.submitIssue}
             onContinue={issueReportHook.resetReport}
             onBack={() => {
-              setActiveTab(issueBackTab);
+              setActiveTab('me');
               issueReportHook.setReportingBooking(null);
             }}
-            backLabel={issueBackTab === 'records' ? '借用記錄' : '首頁'}
-          />
-        )}
-
-        {activeTab === 'weekly' && currentBranch && (
-          <WeeklyBulletin
-            currentBranch={currentBranch}
-            isAdmin={false}
-            onStartBooking={(date, roomId) => {
-              bookingHook.startBookingFromCalendar(date, roomId);
-              setActiveTab('booking');
-            }}
-            onBack={() => setActiveTab('home')}
-          />
-        )}
-
-        {activeTab === 'special-events' && currentBranch && (
-          <SpecialEventsPage
-            currentBranch={currentBranch}
-            onBack={() => setActiveTab('home')}
+            backLabel="我的"
           />
         )}
         </Suspense>
+        )}
       </main>
 
       {updateAvailable && (
@@ -429,13 +371,13 @@ export default function App() {
 
       {currentBranch && (
         <BottomNav
-          active={activeTab === 'issues' ? 'records' : activeTab}
+          active={activeTab === 'issues' ? 'me' : activeTab}
           onChange={setActiveTab}
           items={[
             { id: 'home', label: '首頁', icon: Home },
-            { id: 'booking', label: '租借', icon: CalendarPlus },
+            { id: 'booking', label: '預約', icon: CalendarPlus },
             { id: 'weekly', label: '檔期', icon: CalendarDays },
-            { id: 'records', label: '紀錄', icon: ClipboardList },
+            { id: 'me', label: '我的', icon: UserRound },
           ]}
         />
       )}

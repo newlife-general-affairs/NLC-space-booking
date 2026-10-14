@@ -3,12 +3,8 @@ import type { User } from '@supabase/supabase-js';
 import {
   Calendar,
   ClipboardList,
-  Sparkles,
-  MapPin,
   Megaphone,
-  ChevronRight,
-  Clock,
-  Building2,
+  ChevronDown,
   AlertOctagon,
   Eye,
   AlertTriangle,
@@ -18,14 +14,11 @@ import {
   BookOpen,
   Lightbulb,
 } from 'lucide-react';
-import { BRANCHES } from '@church/shared/constants';
-import type { ActiveTab, Announcement, DisqualifiedZone, UserProfile, ViolationSummary } from '@church/shared/types';
+import type { Announcement, DisqualifiedZone, UserProfile, ViolationSummary } from '@church/shared/types';
 import { apiFetchPastorStatus } from '@church/shared/api';
 import { Button, EmptyState, ListRow, PullToRefresh, Sheet, StatStrip } from '../ui';
 
 interface HomePageProps {
-  currentBranch: string | null;
-  role: string | null;
   user: User & { email: string };
   userProfile: UserProfile | null;
   announcements: Announcement[];
@@ -33,8 +26,6 @@ interface HomePageProps {
   isAdmin?: boolean;
   getToken?: () => string;
   onRefresh?: () => Promise<void>;
-  onSelectBranch: (branch: string) => void;
-  onTabChange: (tab: ActiveTab) => void;
 }
 
 const GREETING_ICON = { moon: Moon, sun: Sun, coffee: Coffee };
@@ -48,7 +39,6 @@ function getGreeting() {
 }
 
 export default function HomePage({
-  currentBranch,
   user,
   userProfile,
   announcements,
@@ -56,10 +46,9 @@ export default function HomePage({
   isAdmin = false,
   getToken,
   onRefresh,
-  onSelectBranch,
-  onTabChange,
 }: HomePageProps) {
   const [selectedAnn, setSelectedAnn] = useState<Announcement | null>(null);
+  const [showAllAnn, setShowAllAnn] = useState(false);
   const [showViolationModal, setShowViolationModal] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(
@@ -106,44 +95,10 @@ export default function HomePage({
     </div>
   );
 
-  // ── 選擇據點 ──────────────────────────────────────────────
-  if (!currentBranch) {
-    return (
-      <div className="py-8 flex flex-col items-center animate-fade-up">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-primary text-primary-ink rounded-3xl shadow-card mb-4">
-            <Building2 size={30} />
-          </div>
-          <h2 className="text-xl font-black tracking-tight text-ink mb-2">主內同工與會眾場地預借</h2>
-          <p className="text-ink-soft text-xs leading-relaxed max-w-xs mx-auto">
-            歡迎使用雲端場地租借系統，請點擊下方您所在的聚會據點進入。
-          </p>
-        </div>
-        <div className="grid grid-cols-2 gap-3 w-full">
-          {BRANCHES.map((branch, idx) => (
-            <button
-              key={branch}
-              onClick={() => onSelectBranch(branch)}
-              className="card card-hover flex flex-col items-center gap-3 p-5 min-h-[148px] justify-center animate-fade-up"
-              style={{ animationDelay: `${idx * 60}ms` }}
-            >
-              <div className="w-11 h-11 rounded-xl bg-primary-soft text-primary flex items-center justify-center">
-                <MapPin size={20} />
-              </div>
-              <div className="text-base font-black text-ink">{branch}</div>
-              <div className="flex items-center gap-1 text-[11px] font-bold text-primary">
-                進入管理 <ChevronRight size={12} />
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
   // ── 首頁 ──────────────────────────────────────────────────
   const greeting = getGreeting();
-  const activeAnnouncements = announcements.filter(a => a.is_active !== false).slice(0, 3);
+  const allAnnouncements = announcements.filter(a => a.is_active !== false);
+  const visibleAnnouncements = showAllAnn ? allAnnouncements : allAnnouncements.slice(0, 3);
 
   const userPastoralZone = userProfile?.pastoral_zone?.trim();
   const hasPastoralZone = !!userPastoralZone && !['無牧區', '未知牧區', '其他', 'other'].includes(userPastoralZone);
@@ -247,50 +202,15 @@ export default function HomePage({
 
         {renderStatusStrip()}
 
-        <button
-          onClick={() => onTabChange('booking')}
-          className="w-full text-left mt-5 p-6 bg-primary text-primary-ink rounded-3xl shadow-card flex items-center justify-between gap-4"
-        >
-          <div>
-            <span className="inline-block px-2 py-0.5 bg-white/15 rounded-full text-[10px] font-black tracking-widest uppercase mb-2">
-              Primary Service
-            </span>
-            <h4 className="font-black text-lg">立即預約教會場地</h4>
-            <p className="text-white/80 text-xs mt-1 leading-relaxed">快速發起新的借用申請</p>
-          </div>
-          <div className="p-3 bg-white/15 rounded-2xl shrink-0">
-            <Calendar size={24} />
-          </div>
-        </button>
-
-        <div className="grid grid-cols-3 gap-3 mt-4">
-          <button onClick={() => onTabChange('weekly')} className="card p-3.5 flex flex-col items-center gap-2 text-center">
-            <div className="w-9 h-9 rounded-xl bg-surface-sunken text-ink-soft flex items-center justify-center"><Clock size={16} /></div>
-            <span className="text-[11px] font-bold text-ink leading-tight">檔期概況</span>
-          </button>
-          <button onClick={() => onTabChange('records')} className="card p-3.5 flex flex-col items-center gap-2 text-center">
-            <div className="w-9 h-9 rounded-xl bg-surface-sunken text-ink-soft flex items-center justify-center"><ClipboardList size={16} /></div>
-            <span className="text-[11px] font-bold text-ink leading-tight">我的紀錄</span>
-          </button>
-          <button onClick={() => onTabChange('special-events')} className="card p-3.5 flex flex-col items-center gap-2 text-center">
-            <div className="w-9 h-9 rounded-xl bg-surface-sunken text-ink-soft flex items-center justify-center"><Sparkles size={16} /></div>
-            <span className="text-[11px] font-bold text-ink leading-tight">婚禮重要</span>
-          </button>
-        </div>
-
         <div className="mt-6">
-          <h3
-            onClick={() => onTabChange('announcements')}
-            className="text-sm font-black text-ink flex items-center gap-1.5 mb-3"
-          >
-            <Megaphone size={15} className="text-primary" /> 最新發布公告
-            <ChevronRight size={14} className="text-ink-faint" />
+          <h3 className="text-sm font-black text-ink flex items-center gap-1.5 mb-3">
+            <Megaphone size={15} className="text-primary" /> 公告
           </h3>
-          {activeAnnouncements.length === 0 ? (
+          {allAnnouncements.length === 0 ? (
             <EmptyState icon={Megaphone} title="目前本據點無任何公告通知" />
           ) : (
             <div className="space-y-2.5">
-              {activeAnnouncements.map((ann) => (
+              {visibleAnnouncements.map((ann) => (
                 <ListRow
                   key={ann.id}
                   onClick={() => setSelectedAnn(ann)}
@@ -299,6 +219,16 @@ export default function HomePage({
                   subtitle={new Date(ann.created_at).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' })}
                 />
               ))}
+              {allAnnouncements.length > 3 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllAnn(v => !v)}
+                  className="w-full flex items-center justify-center gap-1 py-2 text-xs font-bold text-primary"
+                >
+                  {showAllAnn ? '收起' : `查看全部 ${allAnnouncements.length} 則`}
+                  <ChevronDown size={13} className={showAllAnn ? 'rotate-180' : ''} />
+                </button>
+              )}
             </div>
           )}
         </div>
