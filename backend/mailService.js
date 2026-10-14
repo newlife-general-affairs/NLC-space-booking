@@ -2,6 +2,9 @@ const nodemailer = require('nodemailer');
 
 require('dotenv').config();
 
+// MAIL_ENABLED=false → 不寄信、只記 log（staging 與正式共用資料庫，避免寄給真實使用者）
+const MAIL_ENABLED = process.env.MAIL_ENABLED !== 'false';
+
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
   port: process.env.SMTP_PORT || 465,
@@ -46,13 +49,7 @@ const sendBookingConfirmation = async (userEmail, bookingDetails) => {
     `
   };
 
-  try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log('通知信已成功發送至：', userEmail);
-    console.log('預覽郵件連結: %s', nodemailer.getTestMessageUrl(info));
-  } catch (error) {
-    console.error('郵件發送失敗：', error);
-  }
+  await deliver(mailOptions, '通知信');
 };
 
 const sendRoomPassword = async (userEmail, roomName, password) => {
@@ -74,13 +71,21 @@ const sendRoomPassword = async (userEmail, roomName, password) => {
     `
   };
 
+  await deliver(mailOptions, '密碼信');
+};
+
+async function deliver(mailOptions, label) {
+  if (!MAIL_ENABLED) {
+    console.log(`[mail] MAIL_ENABLED=false，略過寄送${label}：${mailOptions.subject} → ${mailOptions.to}`);
+    return;
+  }
   try {
     const info = await transporter.sendMail(mailOptions);
-    console.log('密碼信已成功發送至：', userEmail);
+    console.log(`${label}已成功發送至：`, mailOptions.to);
     console.log('預覽郵件連結: %s', nodemailer.getTestMessageUrl(info));
   } catch (error) {
     console.error('郵件發送失敗：', error);
   }
-};
+}
 
 module.exports = { sendBookingConfirmation, sendRoomPassword };
