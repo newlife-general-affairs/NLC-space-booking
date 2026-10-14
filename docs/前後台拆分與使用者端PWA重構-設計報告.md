@@ -61,7 +61,7 @@ space-booking-system/
 | 5 | **使用者端不像 App**：頂部是網頁 header（[`AppHeader.tsx`](../frontend/src/components/AppHeader.tsx) 有「切換模式」「登出」等後台才需要的東西）、預約是 2 步塞滿的長表單（[`BookingPage.tsx`](../frontend/src/pages/BookingPage.tsx) 809 行）、`manifest` 只有一顆 SVG icon、沒有安裝引導、沒有更新提示、iOS 無 apple-touch-icon。 | `manifest.webmanifest`、`index.html` |
 | 6 | **部署綁死**：`vercel.json` 一個專案同時 build 前端靜態與後端 function；前端任一邊要獨立發佈 / 回滾都不行。 | [`vercel.json`](../vercel.json) |
 
-> 附註：repo 內 [`demo/`](../demo) 是一份 qiankun + antd 的 micro-frontend 樣板，與本系統無關，本次不納入。
+> 附註：repo 內原有的 `demo/` 是一份 qiankun + antd 的 micro-frontend 樣板，與本系統無關，已自 repo 移除。
 
 ---
 
@@ -686,7 +686,7 @@ space-booking-system/
 | `frontend/src/index.css` | member / console 各一份 | 拆補丁，落正規 token |
 | `frontend/public/manifest.webmanifest`、`sw.js`、`sw/*` | `apps/member/public/` | manifest 重寫；SW 骨架沿用 |
 | `frontend/public/maps/*`、`icons.svg`、`favicon.svg` | 依用途分到 member / console | 原封 |
-| `demo/` | — | 無關，維持不動 |
+| `demo/` | — | 無關，已移除 |
 
 ## 附錄 B：關鍵程式位置索引
 
