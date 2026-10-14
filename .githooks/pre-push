@@ -1,0 +1,33 @@
+#!/bin/sh
+# 分支保護（本機版）：repo 為免費方案的 private repo，GitHub 無法設分支保護，改由 pre-push 擋誤操作。
+#   - main：禁止直接 push，只能透過 PR 合併
+#   - staging：長期分支，禁止刪除與 force push
+# 由 scripts/setup-git-hooks.js 在 npm install 時設定 core.hooksPath 生效。
+
+is_zero() {
+  case "$1" in
+    *[!0]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+status=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main)
+      echo "✋ 禁止直接 push 到 main，請開 PR 從 staging 合併。" >&2
+      status=1
+      ;;
+    refs/heads/staging)
+      if is_zero "$local_sha"; then
+        echo "✋ staging 是長期分支，禁止刪除。" >&2
+        status=1
+      elif ! is_zero "$remote_sha" && ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+        echo "✋ 禁止對 staging 做 force push（非快轉更新）。若只是本機落後，請先 git pull。" >&2
+        status=1
+      fi
+      ;;
+  esac
+done
+
+exit $status
