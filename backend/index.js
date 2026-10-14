@@ -63,7 +63,9 @@ app.use('/api/intake',        intakeRouter);
 // ── Server Bootstrap ─────────────────────────────────────────────
 module.exports = app;
 
-if (process.env.NODE_ENV !== 'production') {
+// 只有直接執行（npm start / node index.js）才啟動 server；
+// Vercel 函式（api/index.js、apps/console/api/index.js）與測試只引用 app。
+if (require.main === module) {
   const PORT = process.env.PORT || 3001;
   initDb().then(() => {
     app.listen(PORT, () => console.log(`🚀 Space Booking Backend running on port ${PORT}`));

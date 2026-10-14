@@ -116,7 +116,8 @@ npm start
 ```
 
 * 每項改動先開 issue，再從 `main` 開工作分支來做。
-* 工作分支開 PR 合併到 `staging` 測試；確認 OK 後，從 `staging` 開 PR 到 `main`，**由負責人在 GitHub 上看完說明後手動合併**。
+* 工作分支開 PR 到 `staging` 測試；確認 OK 後，從 `staging` 開 PR 到 `main`。
+* 兩種 PR 都**由負責人在 GitHub 上看完說明後手動合併**（Create a merge commit）；Vercel 只部署負責人帳號的 commit，見 [`docs/deploy-vercel.md`](docs/deploy-vercel.md)。
 * `staging` 是長期分支，**不可刪除**（合併 PR 時不要勾選刪除分支）。
 
 repo 目前無法使用 GitHub 的分支保護，改由 [`.githooks/pre-push`](.githooks/pre-push) 在本機擋下以下操作：直接 push 到 `main`、刪除 `staging`、對 `staging` force push。`npm install` 會自動啟用這個 hook（[`scripts/setup-git-hooks.js`](scripts/setup-git-hooks.js)）；只 clone 沒有安裝相依套件的話，可以手動執行 `git config core.hooksPath .githooks`。
@@ -125,15 +126,19 @@ repo 目前無法使用 GitHub 的分支保護，改由 [`.githooks/pre-push`](.
 
 ## 🚀 部署
 
-* 根目錄 [`vercel.json`](vercel.json)：使用者端與後端 API（`/api/*`）部署在同一個 Vercel 專案。
-* [`apps/console/vercel.json`](apps/console/vercel.json)：管理後台是獨立的 Vercel 專案，`/api/*` 轉發到上述後端。
-* `backend/` 有改動時，必須重新部署後端，前端才會使用到新的 API 行為。
+使用者端與管理後台是兩個 Vercel 專案，各自包含一份相同的後端 API，並各有 Production（`main`）與 staging 環境。
+
+* 根目錄 [`vercel.json`](vercel.json)：使用者端＋後端 API
+* [`apps/console/vercel.json`](apps/console/vercel.json)：管理後台＋後端 API
+
+建立專案、環境變數、staging 網域等設定步驟見 [`docs/deploy-vercel.md`](docs/deploy-vercel.md)。
 
 ---
 
 ## 📚 相關文件
 
 * [`PROJECT_ARCHITECTURE.md`](PROJECT_ARCHITECTURE.md)：目錄結構、後端預約管線、資料庫
+* [`docs/deploy-vercel.md`](docs/deploy-vercel.md)：Vercel 部署指南
 * [`docs/前後台拆分與使用者端PWA重構-設計報告.md`](docs/前後台拆分與使用者端PWA重構-設計報告.md)
 * [`docs/衝突拖曳調整-設計報告.md`](docs/衝突拖曳調整-設計報告.md)
 * [`docs/表單自動匯入-設計報告.md`](docs/表單自動匯入-設計報告.md)（Apps Script：[`docs/apps-script/form-intake.gs`](docs/apps-script/form-intake.gs)）

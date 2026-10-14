@@ -77,7 +77,8 @@ space-booking-system/
 │       │   └── pages/admin/      #  BookingsTab、RoomsTab、TuyaTab、ViolationsTab…
 │       └── vite.config.mjs
 │
-├── vercel.json                    # member + backend 主部署（console 為獨立專案）
+├── api/index.js                   # 前台 Vercel 專案的 API 入口（載入 backend/index.js）
+├── vercel.json                    # 前台 Vercel 專案：member + API（後台見 apps/console/vercel.json）
 └── package.json                   # 根目錄 npm workspaces（packages/*、apps/*）
 ```
 
