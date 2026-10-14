@@ -10,10 +10,10 @@
 | 設定檔 | [`vercel.json`](../vercel.json) | [`apps/console/vercel.json`](../apps/console/vercel.json) |
 | 網頁 | `apps/member` | `apps/console` |
 | API 入口 | [`api/index.js`](../api/index.js) | [`apps/console/api/index.js`](../apps/console/api/index.js) |
-| `main` → Production | `nlc-booking.vercel.app` | `nlc-booking-console.vercel.app` |
-| `staging` → Preview | `nlc-booking-staging.vercel.app` | `nlc-booking-console-staging.vercel.app` |
+| `main` → Production | `nlc-booking.vercel.app` | `nlc-space-booking-console.vercel.app` |
+| `staging` → Preview | `nlc-booking-staging.vercel.app` | `nlc-space-booking-console-staging.vercel.app` |
 
-* 專案名稱與網域為建議值，依實際可用名稱調整；調整後下文提到網域的地方都要跟著換。
+* 兩個專案位於 Vercel 團隊 `newlife-general-affairs-projects`。後台專案名稱是 `nlc-booking-console`，但網域是 `nlc-space-booking-console.vercel.app`。
 * 兩個 API 入口都只是載入 `backend/index.js`，網頁一律以同源的 `/api/*` 呼叫自己專案的 API，沒有跨專案轉發。
 * 兩份 `vercel.json` 都設了 `ignoreCommand`：只有 `main`、`staging` 會部署，其他分支推上 GitHub 時 Vercel 會略過。
 * 安裝、建置、輸出目錄都寫在 `vercel.json`，Vercel 後台的同名設定會被覆蓋，不需要改。
@@ -45,7 +45,7 @@
 | `VITE_SUPABASE_ANON_KEY` | Supabase anon key | 同正式 | 前端用，建置時寫入網頁 |
 | `SUPABASE_URL` | Supabase 專案網址 | 同正式 | 後端用 |
 | `SUPABASE_ANON_KEY` | Supabase anon key | 同正式 | 後端用 |
-| `SUPABASE_SERVICE_ROLE_KEY` | （建議設定） | 同正式 | 未設定時後端改用 anon key，部分個人資料與角色查詢可能被 RLS 擋下 |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase secret key（`sb_secret_…`）或 legacy `service_role` | 同正式 | 未設定時後端改用 anon key，部分個人資料與角色查詢可能被 RLS 擋下 |
 | `SMTP_HOST`、`SMTP_PORT`、`SMTP_USER`、`SMTP_PASS` | 寄信帳號 | 同正式 | |
 | `MAIL_ENABLED` | `true`（或不設） | **`false`** | `false` 時不寄信、只記 log |
 | `TUYA_CLIENT_ID`、`TUYA_CLIENT_SECRET`、`TUYA_BASE_URL` | Tuya 憑證 | 同正式 | |
@@ -56,6 +56,8 @@
 
 `PORT` 在 Vercel 上不需要設定。
 
+**Supabase 整合**：團隊裝了 Supabase 的 Vercel 整合，它只在**前台 Production** 自動提供 `SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`（以及程式用不到的 `POSTGRES_*`、`NEXT_PUBLIC_*` 等）。那三個變數在前台 Production 不要再手動新增；後台兩個環境與前台 staging 則是手動設定。
+
 ## 四、Supabase（共用一套，設定一次）
 
 **Authentication → URL Configuration**：
@@ -64,9 +66,9 @@
 * **Redirect URLs**：加入四個網域，Google 登入後才能導回原本的網站：
   ```
   https://nlc-booking.vercel.app/**
-  https://nlc-booking-console.vercel.app/**
+  https://nlc-space-booking-console.vercel.app/**
   https://nlc-booking-staging.vercel.app/**
-  https://nlc-booking-console-staging.vercel.app/**
+  https://nlc-space-booking-console-staging.vercel.app/**
   ```
 
 Google Cloud 的 OAuth 用戶端是導回 Supabase，不需要改。
@@ -98,5 +100,6 @@ staging 與正式共用同一個 Supabase，staging 上新增、修改、刪除�
 ## 日常部署流程
 
 * 工作分支 PR 合併到 `staging` → 兩個專案的 staging 自動部署。
-* `staging` → `main` 的 PR 由負責人在 GitHub 手動合併 → 兩個專案的 Production 自動部署。
+* `staging` → `main` 的 PR 合併 → 兩個專案的 Production 自動部署。
+* **兩種 PR 都要由負責人（`newlife-general-affairs`）在 GitHub 上以「Create a merge commit」合併。** Vercel 免費方案只部署團隊成員的 commit；分支最新的 commit 若是其他帳號的，部署會顯示 BLOCKED。
 * 只改後端時兩個專案也都會重新部署，因為兩邊都帶同一份後端。
