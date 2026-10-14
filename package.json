@@ -8,6 +8,7 @@
     "apps/*"
   ],
   "scripts": {
+    "prepare": "node scripts/setup-git-hooks.js",
     "install:all": "npm install && npm install --prefix backend",
     "dev:member": "npm run dev --workspace @church/member",
     "dev:console": "npm run dev --workspace @church/console",
