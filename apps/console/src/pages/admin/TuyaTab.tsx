@@ -684,22 +684,22 @@ export default function TuyaTab({ data: initialRooms, currentBranch, getToken, o
                                         : '智慧密碼門鎖';
 
                                       return (
-                                        <div key={lockId} className="flex flex-col xs:flex-row xs:items-center justify-between p-3.5 bg-zinc-950 border border-zinc-800 rounded-2xl gap-2 transition-colors">
+                                        <div key={lockId} className="flex flex-col xs:flex-row xs:items-center justify-between p-3.5 bg-slate-50 border border-slate-200 rounded-2xl gap-2 transition-colors">
                                           <div className="flex items-center gap-3">
-                                            <div className={`p-2.5 rounded-xl shrink-0 ${lock.online ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' : 'bg-zinc-900 text-zinc-500'}`}>
+                                            <div className={`p-2.5 rounded-xl shrink-0 ${lock.online ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' : 'bg-slate-100 text-slate-500'}`}>
                                               <Key size={18} />
                                             </div>
                                             <div className="min-w-0">
-                                              <div className="text-xs font-extrabold text-zinc-200 truncate">{displayName}</div>
+                                              <div className="text-xs font-extrabold text-slate-800 truncate">{displayName}</div>
                                               <div className="flex items-center gap-1.5 mt-0.5">
                                                 <span className={`w-2 h-2 rounded-full shrink-0 ${
                                                   isUpdating 
                                                     ? 'bg-blue-500 animate-ping' 
                                                     : lock.online 
                                                     ? 'bg-emerald-500 animate-pulse' 
-                                                    : 'bg-zinc-600'
+                                                    : 'bg-slate-400'
                                                 }`} />
-                                                <span className="text-[10px] font-bold text-zinc-400">
+                                                <span className="text-[10px] font-bold text-slate-500">
                                                   {isUpdating ? '同步中...' : lock.online ? '在線' : '離線'}
                                                 </span>
                                               </div>

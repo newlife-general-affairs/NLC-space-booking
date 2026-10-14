@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Calendar, Eye, EyeOff, Key, FileSpreadsheet } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { Calendar, Eye, EyeOff, Key, SlidersHorizontal, Sparkles } from 'lucide-react';
 import {
   apiFetchRooms,
   apiUpdateBookingStatus,
@@ -9,7 +10,6 @@ import {
   apiResendPasswordEmail,
   apiFetchPublicSpaces,
   apiAssignCleaning,
-  apiImportRoomsFromSheet,
 } from '@church/shared/api';
 import AssignCleaningModal from '../../components/AssignCleaningModal';
 import AdminInspectionModal from '../../components/AdminInspectionModal';
@@ -17,6 +17,15 @@ import ConflictBoard from './ConflictBoard';
 import { computeOverlapMap } from '@church/shared/domain/bookingConflicts';
 import type { Booking, PublicSpace, Room } from '@church/shared/types';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
+import {
+  getCleaningStage,
+  getReviewStage,
+  hasStarted,
+  isBookingPast,
+  isReturnOverdue,
+  parseCleaning,
+} from '../../domain/bookingStatus';
+import type { CleaningStage, ReviewStage } from '../../domain/bookingStatus';
 
 interface BookingsTabProps {
   data: Booking[];
@@ -24,6 +33,42 @@ interface BookingsTabProps {
   onRefresh: () => void;
   tabMode?: 'bookings' | 'cleaning' | 'lock-management';
 }
+
+type ReviewTab = 'pending' | 'conflicts' | 'approved' | 'expired';
+type CleaningTab = 'pending' | 'assigned' | 'operations' | 'all';
+type SubTab = ReviewTab | CleaningTab;
+
+const REVIEW_TABS: { id: ReviewTab; stage: ReviewStage; label: string; badge: string }[] = [
+  { id: 'pending', stage: 'pending', label: '📋 待審核', badge: 'bg-rose-500' },
+  { id: 'conflicts', stage: 'conflict', label: '⚠️ 有衝突', badge: 'bg-rose-600' },
+  { id: 'approved', stage: 'approved', label: '✓ 審核通過', badge: 'bg-emerald-500' },
+  { id: 'expired', stage: 'expired', label: '🕗 已過期', badge: 'bg-slate-400' },
+];
+
+const CLEANING_TABS: { id: CleaningTab; stage: CleaningStage; label: string; badge?: string }[] = [
+  { id: 'pending', stage: 'to-assign', label: '🧹 待分配打掃', badge: 'bg-rose-500' },
+  { id: 'assigned', stage: 'assigned', label: '✨ 已分配打掃', badge: 'bg-indigo-500' },
+  { id: 'operations', stage: 'to-inspect', label: '🔍 待清潔檢查', badge: 'bg-amber-500 animate-pulse' },
+  { id: 'all', stage: 'done', label: '📜 已歸還/打掃記錄' },
+];
+
+const statusStyle: Record<string, string> = {
+  approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  rejected: 'bg-rose-50 text-rose-700 border-rose-200',
+  pending: 'bg-amber-50 text-amber-700 border-amber-200 animate-pulse',
+};
+const statusLabel: Record<string, string> = { approved: '已核可', rejected: '已拒絕', pending: '待審核' };
+
+const usageBadge = (b: Booking) =>
+  hasStarted(b.booking_date, b.start_time) ? (
+    <div className="px-2.5 py-1 text-[10px] font-bold rounded-full border text-center bg-sky-50 text-sky-600 border-sky-200 select-none animate-pulse">
+      ● 使用者使用中
+    </div>
+  ) : (
+    <div className="px-2.5 py-1 text-[10px] font-bold rounded-full border text-center bg-slate-50 text-slate-400 border-slate-200 select-none">
+      尚未開始
+    </div>
+  );
 
 export default function BookingsTab({ data, getToken, onRefresh, tabMode = 'bookings' }: BookingsTabProps) {
   const [assigningBooking, setAssigningBooking] = useState<Booking | null>(null);
@@ -34,20 +79,17 @@ export default function BookingsTab({ data, getToken, onRefresh, tabMode = 'book
   const [assigningCleaningBooking, setAssigningCleaningBooking] = useState<Booking | null>(null);
   const [publicSpaces, setPublicSpaces] = useState<PublicSpace[]>([]);
   const [inspectingBooking, setInspectingBooking] = useState<Booking | null>(null);
-  const [subTab, setSubTab] = useState<'pending' | 'assigned' | 'operations' | 'all' | 'conflicts' | 'approved' | 'expired'>('pending');
+  const [subTab, setSubTab] = useState<SubTab>('pending');
   const [rejectionModal, setRejectionModal] = useState<{ bookingId: number; bookingName: string } | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [boardOpen, setBoardOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   useEscapeKey(() => { setRejectionModal(null); setRejectionReason(''); }, !!rejectionModal);
   useEscapeKey(() => setAssigningBooking(null), !!assigningBooking);
 
-  const [sheetUrl, setSheetUrl] = useState('');
-  const [isImporting, setIsImporting] = useState(false);
-
   // Filter States
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState('');
   const [selectedRoom, setSelectedRoom] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
   const [sortOrder, setSortOrder] = useState('desc');
@@ -153,33 +195,6 @@ export default function BookingsTab({ data, getToken, onRefresh, tabMode = 'book
     }
   };
 
-  const handleImport = async () => {
-    if (!sheetUrl.trim()) {
-      alert('請先輸入 Google 試算表連結');
-      return;
-    }
-    if (!window.confirm('⚠️ 警告：此動作會從試算表自動建立未登錄的場地，並依據試算表內容【覆蓋並清空】對應日期與場地現有的所有預約！\n\n確定要執行匯入嗎？')) {
-      return;
-    }
-    setIsImporting(true);
-    try {
-      const res = await apiImportRoomsFromSheet(getToken(), sheetUrl.trim());
-      const result = await res.json();
-      if (res.ok) {
-        alert(`🎉 匯入成功！\n工作表名稱：${result.sheetName}\n解析場地數：${result.roomsParsed} 個\n匯入預約數：${result.bookingsParsed} 筆`);
-        setSheetUrl('');
-        onRefresh();
-      } else {
-        alert(`❌ 匯入失敗：${result.error}`);
-      }
-    } catch (err) {
-      console.error(err);
-      alert('連線伺服器發生錯誤，請稍後再試');
-    } finally {
-      setIsImporting(false);
-    }
-  };
-
   const handleSendPassword = async (id: number) => {
     if (!window.confirm('確定要產生、同步並發送門鎖密碼信給借用人嗎？')) return;
     try {
@@ -252,80 +267,61 @@ export default function BookingsTab({ data, getToken, onRefresh, tabMode = 'book
     }
   };
 
-  // Helper to determine if a booking is overdue for return (1 hour past end time)
-  const isOverdue = (dateStr: string, endTimeStr: string) => {
+  const openCleaningAssign = async (b: Booking) => {
+    setAssigningCleaningBooking(b);
     try {
-      const endPart = endTimeStr.substring(0, 5); // "HH:MM"
-      const [parsedHours, minutes] = endPart.split(':').map(Number);
-      let hours = parsedHours;
-      hours += 1;
-      let targetDateStr = dateStr;
-      if (hours >= 24) {
-        hours -= 24;
-        const nextDay = new Date(dateStr);
-        nextDay.setDate(nextDay.getDate() + 1);
-        targetDateStr = nextDay.toISOString().split('T')[0];
-      }
-      const overdueTime = new Date(`${targetDateStr}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`);
-      return new Date() > overdueTime;
-    } catch {
-      return false;
+      const res = await apiFetchPublicSpaces(b.rooms?.branch);
+      if (Array.isArray(res)) setPublicSpaces(res);
+    } catch (e) {
+      console.error(e);
     }
   };
 
-  // Helper to check if a booking has already ended（結束時間 00:00 視為隔天凌晨）
-  const hasEnded = (dateStr: string, endTimeStr: string) => {
-    try {
-      const endPart = endTimeStr.substring(0, 5);
-      const [hours, minutes] = endPart.split(':').map(Number);
-      let targetDateStr = dateStr;
-      if (hours === 0 && minutes === 0) {
-        const nextDay = new Date(dateStr);
-        nextDay.setDate(nextDay.getDate() + 1);
-        targetDateStr = nextDay.toISOString().split('T')[0];
-      }
-      const endTime = new Date(`${targetDateStr}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`);
-      return new Date() > endTime;
-    } catch {
-      return false;
-    }
-  };
-
-  // Helper to determine if the booking has started using
-  const getUsageStatus = (dateStr: string, startTimeStr: string) => {
-    try {
-      const startPart = startTimeStr.substring(0, 5);
-      const [hours, minutes] = startPart.split(':').map(Number);
-      const startTime = new Date(`${dateStr}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`);
-      return new Date() >= startTime ? 'using' : 'not_started';
-    } catch {
-      return 'not_started';
-    }
+  const openRoomAssign = (b: Booking) => {
+    setAssigningBooking(b);
+    setAssignRoomId(b.room_id);
   };
 
   // Get unique room names from the branch booking data
   const uniqueRooms = Array.from(new Set(data.map(b => b.rooms?.name).filter(Boolean))).sort();
 
-  // Helper to determine sorting priority: 1 for pending approval or return inspection, 0 otherwise
+  // 時段衝突以全部資料（排除已拒絕）計算 — 共用工具
+  const overlapMap = computeOverlapMap(data);
+
+  // 子分頁徽章數字：每筆預約只分類一次
+  const reviewCounts: Record<ReviewStage, number> = { pending: 0, conflict: 0, approved: 0, expired: 0 };
+  const cleaningCounts: Record<CleaningStage, number> = { 'to-assign': 0, assigned: 0, 'to-inspect': 0, done: 0 };
+  data.forEach(b => {
+    const review = getReviewStage(b, overlapMap);
+    if (review) reviewCounts[review] += 1;
+    const cleaning = getCleaningStage(b);
+    if (cleaning) cleaningCounts[cleaning] += 1;
+  });
+
+  // 排序優先：待審核、待清潔檢查的排在前面
   const getBookingPriority = (b: Booking) => {
     if (b.status === 'pending') return 1;
     if (b.status === 'approved' && !b.is_returned) {
-      if (b.violation || isOverdue(b.booking_date, b.end_time)) return 0;
-      const rawAssignments = b.cleaning_assignments || '';
-      const parts = rawAssignments.split('::');
-      const assignState = parts[1] || '';
-      const isSubmitted = assignState === 'submitted' || assignState === 'resubmitted';
-      const isRejected = assignState === 'rejected';
+      if (b.violation || isReturnOverdue(b.booking_date, b.end_time)) return 0;
+      const { isSubmitted, isRejected } = parseCleaning(b);
       if (isSubmitted || isRejected) return 1;
     }
     return 0;
   };
 
-  // Filter and sort bookings client-side
-  // 1. Calculate conflicts on the full data array (excluding rejected) — 共用工具
-  const overlapMap = computeOverlapMap(data);
+  const matchesSubTab = (b: Booking) => {
+    if (tabMode === 'bookings') {
+      const stage = REVIEW_TABS.find(t => t.id === subTab)?.stage;
+      return getReviewStage(b, overlapMap) === stage;
+    }
+    if (tabMode === 'lock-management') {
+      const isTuyaLinked = !!(b.tuya_device_id || b.rooms?.tuya_device_id);
+      return b.status === 'approved' && isTuyaLinked;
+    }
+    const stage = CLEANING_TABS.find(t => t.id === subTab)?.stage;
+    return getCleaningStage(b) === stage;
+  };
 
-  // 2. Filter bookings client-side
   const filterList = data.filter(b => {
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch =
@@ -339,54 +335,12 @@ export default function BookingsTab({ data, getToken, onRefresh, tabMode = 'book
 
     const matchesRoom = !selectedRoom || b.rooms?.name === selectedRoom;
     const matchesDate = !selectedDate || b.booking_date === selectedDate;
-
-    // Filter by conflicts
     const matchesConflicts = !showOnlyConflicts || !!overlapMap[b.id];
 
-    let matchesStatus = true;
-    if (tabMode === 'bookings') {
-      if (subTab === 'pending') {
-        matchesStatus = b.status === 'pending' && !overlapMap[b.id] && !hasEnded(b.booking_date, b.end_time);
-      } else if (subTab === 'conflicts') {
-        matchesStatus = b.status === 'pending' && !!overlapMap[b.id] && !hasEnded(b.booking_date, b.end_time);
-      } else if (subTab === 'approved') {
-        matchesStatus = b.status === 'approved';
-      } else if (subTab === 'expired') {
-        matchesStatus = b.status === 'pending' && hasEnded(b.booking_date, b.end_time);
-      } else {
-        matchesStatus = !selectedStatus || b.status === selectedStatus;
-      }
-    } else if (tabMode === 'lock-management') {
-      const isTuyaLinked = !!(b.tuya_device_id || b.rooms?.tuya_device_id);
-      matchesStatus = b.status === 'approved' && isTuyaLinked;
-    } else {
-      // tabMode === 'cleaning'
-      if (b.status !== 'approved') return false;
-      const rawAssignments = b.cleaning_assignments || '';
-      const parts = rawAssignments.split('::');
-      const cleanAssignText = parts[0] || '';
-      const assignState = parts[1] || '';
-      const isSubmitted = assignState === 'submitted' || assignState === 'resubmitted';
-      const isRejected = assignState === 'rejected';
-
-      const overdue = isOverdue(b.booking_date, b.end_time);
-
-      if (subTab === 'pending') {
-        matchesStatus = !b.is_returned && !isSubmitted && !isRejected && !cleanAssignText && !overdue;
-      } else if (subTab === 'assigned') {
-        matchesStatus = !b.is_returned && !isSubmitted && !isRejected && !!cleanAssignText && !overdue;
-      } else if (subTab === 'operations') {
-        matchesStatus = !b.is_returned && (isSubmitted || isRejected) && !overdue;
-      } else {
-        matchesStatus = b.is_returned || overdue;
-      }
-    }
-
-    return matchesSearch && matchesRoom && matchesStatus && matchesDate && matchesConflicts;
+    return matchesSearch && matchesRoom && matchesSubTab(b) && matchesDate && matchesConflicts;
   });
 
   const getSortedBookings = (list: Booking[]) => {
-    // Sort by submission time or booking time grouped by priority
     const priority1 = list.filter(b => getBookingPriority(b) === 1);
     const priority0 = list.filter(b => getBookingPriority(b) === 0);
 
@@ -411,264 +365,437 @@ export default function BookingsTab({ data, getToken, onRefresh, tabMode = 'book
     };
 
     const compareFn = tabMode === 'cleaning' ? compareBookingTime : compareSubmissionTime;
-
-    const sortedPriority1 = [...priority1].sort(compareFn);
-    const sortedPriority0 = [...priority0].sort(compareFn);
-
-    return [...sortedPriority1, ...sortedPriority0];
+    return [...[...priority1].sort(compareFn), ...[...priority0].sort(compareFn)];
   };
 
   const filteredBookings = getSortedBookings(filterList);
 
-  const statusStyle: Record<string, string> = {
-    approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    rejected: 'bg-rose-50 text-rose-700 border-rose-200',
-    pending: 'bg-amber-50 text-amber-700 border-amber-200 animate-pulse',
+  const conflictFilterCount = Object.keys(overlapMap).filter(id => {
+    const b = data.find(x => x.id === Number(id));
+    if (!b) return false;
+    if (subTab === 'pending') return b.status === 'pending';
+    return true;
+  }).length;
+
+  const activeFilterCount = [searchTerm, selectedDate, selectedRoom].filter(Boolean).length
+    + (sortOrder !== 'desc' ? 1 : 0)
+    + (showOnlyConflicts ? 1 : 0);
+
+  // ─── 各欄位內容（桌機表格與手機卡片共用） ───────────────────────
+
+  const renderInfo = (b: Booking) => (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-extrabold text-slate-800 text-sm">{b.rooms?.name}</span>
+        {b.booking_type && (
+          <span className={`text-[9px] font-black px-1.5 py-0.5 rounded border select-none ${
+            b.booking_type === '婚禮' ? 'bg-rose-50 text-rose-600 border-rose-100' :
+            b.booking_type === '重要' ? 'bg-amber-50 text-amber-600 border-amber-100' :
+            b.booking_type === '取消或異動' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+            'bg-slate-50 text-slate-600 border-slate-200'
+          }`}>
+            {b.booking_type}
+          </span>
+        )}
+      </div>
+      <div className="text-[11px] text-slate-500 font-semibold bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md inline-block mt-1">
+        📅 {b.booking_date} {b.start_time?.substring(0, 5)}-{b.end_time?.substring(0, 5)}
+      </div>
+      <div className="text-xs text-slate-600 mt-2 whitespace-pre-wrap break-all border-l-2 border-indigo-200 pl-2.5 py-0.5 font-medium italic">
+        {b.purpose} <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-normal not-italic ml-1">👥 {b.attendance_count}人</span>
+      </div>
+      <div className="text-[10px] text-slate-400 mt-1.5 font-bold">據點：{b.rooms?.branch}</div>
+      {tabMode === 'bookings' && overlapMap[b.id] && overlapMap[b.id].type === 'conflict' && (
+        <div className="mt-2.5 p-2.5 rounded-xl bg-rose-50/80 border border-rose-100/60 space-y-1.5 max-w-md">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-rose-600 text-white animate-pulse">
+              ⚠️ 空間時段衝突 (同場地)
+            </span>
+            <span className="text-[9px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded">
+              申請順位: {String.fromCharCode(65 + overlapMap[b.id].index)}
+            </span>
+          </div>
+          <div className="text-[10px] text-rose-700 space-y-1 pt-1.5 border-t border-rose-100/50 font-medium">
+            <div className="font-bold flex items-center gap-1">
+              <span>🔗</span> 與以下預約時段重疊：
+            </div>
+            {overlapMap[b.id].conflictingWith.map((c, i) => (
+              <div key={i} className="flex flex-wrap items-center gap-x-1 pl-2 border-l-2 border-rose-300">
+                <span className="font-extrabold">{c.borrower}</span>
+                <span className="text-slate-500 font-mono">({c.time})</span>
+                <span className="text-rose-600 italic">「{c.purpose}」</span>
+                <span className={`text-[8px] px-1 rounded-full font-black border ${
+                  c.status === 'approved'
+                    ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                    : 'bg-amber-50 text-amber-600 border-amber-200 animate-pulse'
+                }`}>
+                  {c.status === 'approved' ? '已核可' : '待審核'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  const renderBorrower = (b: Booking) => (
+    <>
+      <div className="font-bold text-slate-800 text-sm">{b.full_name}</div>
+      <div className="text-[10px] text-slate-500 mt-0.5">📞 {b.phone}</div>
+      <div className="text-[10px] text-slate-400 font-mono mt-0.5 break-all">{b.user_email}</div>
+    </>
+  );
+
+  const renderReviewStatus = (b: Booking) => (
+    <div className="flex flex-col gap-1 items-start">
+      <span className={`px-2.5 py-1 rounded-full text-[10px] font-black whitespace-nowrap border ${statusStyle[b.status] || statusStyle.pending}`}>
+        {statusLabel[b.status] || '待審核'}
+      </span>
+      {b.status === 'rejected' && b.rejection_reason && (
+        <div className="text-[10px] text-rose-600 bg-rose-50 border border-rose-100 rounded px-2 py-1 max-w-[160px] break-words leading-tight font-bold">
+          📝 {b.rejection_reason}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderReviewActions = (b: Booking) =>
+    b.status === 'pending' ? (
+      <div className="flex flex-wrap gap-1.5">
+        <button
+          onClick={() => handleApprove(b.id, b.full_name)}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-colors active:scale-95"
+        >
+          ✓ 核可
+        </button>
+        <button
+          onClick={() => handleOpenRejectModal(b.id, b.full_name)}
+          className="bg-rose-50 text-rose-600 border border-rose-200 px-2.5 py-1.5 rounded-lg text-xs font-bold hover:bg-rose-100 transition-colors active:scale-95"
+        >
+          ✕ 拒絕
+        </button>
+        <button
+          onClick={() => openRoomAssign(b)}
+          className={`text-xs px-2.5 py-1.5 rounded-lg border font-bold transition-all active:scale-95 ${b.rooms?.name === '💒 由教會分配' ? 'bg-amber-50 text-amber-700 border-amber-300 animate-pulse' : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100/60'}`}
+        >
+          📍 {b.rooms?.name === '💒 由教會分配' ? '指派場地' : '變更場地'}
+        </button>
+      </div>
+    ) : (
+      <div className="flex flex-wrap gap-1.5 items-start">
+        {b.status === 'approved' && !isBookingPast(b.booking_date, b.end_time) && (
+          <button
+            onClick={() => openRoomAssign(b)}
+            className="text-xs px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 font-bold hover:bg-indigo-100 transition-all active:scale-95 shadow-sm"
+          >
+            📍 變更場地
+          </button>
+        )}
+        <button
+          onClick={() => handleOpenRejectModal(b.id, b.full_name)}
+          className="bg-rose-50 text-rose-600 border border-rose-200 px-2.5 py-1.5 rounded-lg text-xs font-bold hover:bg-rose-100 transition-colors active:scale-95"
+          title="取消核可並拒絕"
+        >
+          ✕ 撤銷核可
+        </button>
+      </div>
+    );
+
+  const renderLockCode = (b: Booking) =>
+    b.access_code ? (
+      <div className="flex flex-col items-start gap-1">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono bg-indigo-50/80 text-indigo-700 border border-indigo-100 px-2 py-0.5 rounded text-xs font-bold tracking-widest shadow-sm">
+            {revealedIds.includes(b.id) ? b.access_code : '••••'}
+          </span>
+          <button
+            onClick={() => setRevealedIds(prev => prev.includes(b.id) ? prev.filter(x => x !== b.id) : [...prev, b.id])}
+            data-no-debounce="true"
+            className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 transition-colors"
+            title={revealedIds.includes(b.id) ? '隱藏密碼' : '顯示密碼'}
+          >
+            {revealedIds.includes(b.id) ? <EyeOff size={12} /> : <Eye size={12} />}
+          </button>
+        </div>
+        {(b.tuya_device_id || b.rooms?.tuya_device_id) && (
+          b.tuya_password_id
+            ? <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 inline-flex items-center gap-1 mt-0.5">● 智慧鎖已同步</span>
+            : <span className="text-[9px] font-bold text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200 inline-flex items-center gap-1 mt-0.5">▲ 門鎖不同步</span>
+        )}
+      </div>
+    ) : isBookingPast(b.booking_date, b.end_time) ? (
+      <span className="text-slate-400 text-xs italic">已過期</span>
+    ) : (
+      <span className="text-slate-400 text-xs italic">未發送</span>
+    );
+
+  const lockButtonClass = 'text-[10px] px-2.5 py-1.5 rounded-lg font-bold transition-all active:scale-95 flex items-center justify-center gap-1 shadow-sm whitespace-nowrap';
+
+  const renderLockActions = (b: Booking) =>
+    isBookingPast(b.booking_date, b.end_time) ? (
+      <span className="text-slate-400 text-xs italic">已過期</span>
+    ) : b.access_code ? (
+      <div className="flex flex-wrap md:flex-col gap-1.5 items-start">
+        <button
+          onClick={() => handleResendEmail(b.id)}
+          className={`${lockButtonClass} bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200`}
+          title="重新發送密碼通知信給借用人"
+        >
+          ✉️ 重發郵件
+        </button>
+        <button
+          onClick={() => handleUpdatePassword(b.id)}
+          className={`${lockButtonClass} bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200`}
+          title="重新產生隨機密碼並更新同步"
+        >
+          🔄 更新密碼
+        </button>
+        <button
+          onClick={() => openRoomAssign(b)}
+          className={`${lockButtonClass} bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200`}
+        >
+          📍 變更場地
+        </button>
+      </div>
+    ) : (
+      <div className="flex flex-wrap md:flex-col gap-1.5 items-start">
+        <button
+          onClick={() => handleSendPassword(b.id)}
+          className={`${lockButtonClass} bg-slate-800 hover:bg-slate-700 text-slate-100`}
+        >
+          <Key size={10} /> 發送密碼
+        </button>
+        <button
+          onClick={() => openRoomAssign(b)}
+          className={`${lockButtonClass} bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200`}
+        >
+          📍 變更場地
+        </button>
+      </div>
+    );
+
+  const renderCleaning = (b: Booking) => {
+    const { assignedText, state, isSubmitted, isRejected } = parseCleaning(b);
+    const overdue = isReturnOverdue(b.booking_date, b.end_time);
+
+    if (subTab === 'pending') {
+      const isNotStarted = !hasStarted(b.booking_date, b.start_time);
+      return (
+        <div className="flex flex-col items-stretch gap-1.5 min-w-[130px] max-w-[200px]">
+          {usageBadge(b)}
+          <div className="px-2 py-0.5 text-[9px] font-black rounded border text-center bg-amber-50 text-amber-700 border-amber-200 select-none animate-pulse">
+            ○ 待指派打掃
+          </div>
+          <button
+            disabled={isNotStarted}
+            onClick={() => openCleaningAssign(b)}
+            className={`px-2.5 py-1 text-[10px] font-bold rounded-full text-center w-full transition-all duration-200 border ${
+              isNotStarted
+                ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                : 'text-indigo-600 hover:bg-indigo-50 border-indigo-200'
+            }`}
+            title={isNotStarted ? '借用時間尚未開始，無法分配打掃' : ''}
+          >
+            {isNotStarted ? '時間未到' : '🧹 分配打掃'}
+          </button>
+        </div>
+      );
+    }
+
+    if (subTab === 'assigned') {
+      return (
+        <div className="flex flex-col items-stretch gap-1.5 min-w-[130px] max-w-[200px]">
+          {usageBadge(b)}
+          <div className="px-2 py-0.5 text-[9px] font-black rounded border text-center bg-emerald-50 text-emerald-700 border-emerald-200 select-none">
+            ● 已指派打掃
+          </div>
+          <button
+            onClick={() => openCleaningAssign(b)}
+            className="px-2.5 py-1 text-[10px] font-bold rounded-full text-indigo-600 hover:bg-indigo-50 border border-indigo-200 transition-colors text-center w-full"
+          >
+            🧹 重新分配
+          </button>
+          {assignedText && (
+            <div className="text-[9px] text-emerald-600 font-semibold text-center mt-0.5 bg-emerald-50/30 py-0.5 border border-emerald-100 rounded">
+              指派：{assignedText}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (subTab === 'operations') {
+      return (
+        <div className="flex flex-col items-stretch gap-1.5 min-w-[130px] max-w-[200px]">
+          {isSubmitted ? (
+            <>
+              <div className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 px-2 py-1 rounded-md font-bold animate-pulse text-center select-none">
+                {state === 'resubmitted' ? '🔔 待檢查 (已複檢)' : '🔔 待檢查 (已打掃)'}
+              </div>
+              <button
+                onClick={() => setInspectingBooking(b)}
+                className="px-2.5 py-1 text-[10px] font-black rounded-lg bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition-colors shadow-sm text-center"
+              >
+                🔍 待檢查
+              </button>
+              <button
+                onClick={() => handleRejectCleaning(b)}
+                className="px-2.5 py-1 text-[10px] font-black rounded-lg bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 transition-colors shadow-sm text-center"
+              >
+                ❌ 檢查退回
+              </button>
+            </>
+          ) : isRejected ? (
+            <>
+              <div className="text-[10px] text-rose-600 bg-rose-50 border border-rose-200 px-2 py-1 rounded-md font-bold text-center select-none">
+                ⚠️ 檢查退回 (待改善)
+              </div>
+              <button
+                onClick={() => setInspectingBooking(b)}
+                className="px-2.5 py-1 text-[10px] font-black rounded-lg bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition-colors shadow-sm text-center animate-pulse"
+              >
+                🔍 待檢查
+              </button>
+            </>
+          ) : null}
+          {assignedText && (
+            <div className="text-[9px] text-emerald-600 font-semibold text-center mt-0.5">
+              指派：{assignedText}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // 已歸還/打掃記錄
+    return (
+      <div className="flex flex-col items-stretch gap-1.5 min-w-[130px] max-w-[220px]">
+        {b.is_returned ? (
+          <span className="px-2.5 py-1 text-[10px] font-bold rounded-full border text-center bg-emerald-50 text-emerald-700 border-emerald-200 select-none">
+            歸還成功
+          </span>
+        ) : overdue ? (
+          <div className="flex flex-col gap-1 items-stretch">
+            <span className="px-2.5 py-1 text-[10px] font-extrabold rounded-md border text-center bg-rose-50 text-rose-700 border-rose-200 select-none">
+              🚨 逾期未歸還
+            </span>
+            {b.violation && (
+              <div className="text-[9px] text-rose-600 bg-rose-50/50 border border-rose-100 py-0.5 rounded text-center font-bold">
+                已記點: {b.violation.reason || '未完整復歸'}
+              </div>
+            )}
+            <div className="text-[9px] text-slate-500 bg-slate-50 border border-slate-200 py-0.5 rounded text-center font-semibold">
+              {isSubmitted
+                ? '打掃狀態: 待清潔檢查'
+                : isRejected
+                ? '打掃狀態: 清潔退回'
+                : assignedText
+                ? `打掃狀態: 已指派(${assignedText})`
+                : '打掃狀態: 未指派'}
+            </div>
+          </div>
+        ) : (
+          <span className="text-slate-400 text-xs italic text-center">無指派/進行中</span>
+        )}
+      </div>
+    );
   };
-  const statusLabel: Record<string, string> = { approved: '已核可', rejected: '已拒絕', pending: '待審核' };
+
+  const approvedBadge = (
+    <span className="px-2.5 py-1 rounded-full text-[10px] font-black whitespace-nowrap border bg-emerald-50 text-emerald-700 border-emerald-200">
+      已核可
+    </span>
+  );
+
+  /** 依模式回傳額外欄位：[表頭, 內容, 表頭 class] */
+  const modeColumns = (b: Booking | null): { header: string; width?: string; content: ReactNode }[] => {
+    if (tabMode === 'bookings') {
+      return [
+        { header: '狀態', width: 'w-32', content: b && renderReviewStatus(b) },
+        { header: '審核與指派操作', width: 'w-44', content: b && renderReviewActions(b) },
+      ];
+    }
+    if (tabMode === 'lock-management') {
+      return [
+        { header: '門鎖密碼', width: 'w-36', content: b && renderLockCode(b) },
+        { header: '密碼管理', width: 'w-32', content: b && renderLockActions(b) },
+      ];
+    }
+    const cols: { header: string; width?: string; content: ReactNode }[] = [
+      { header: '打掃與清潔稽核', content: b && renderCleaning(b) },
+    ];
+    if (subTab === 'all') cols.push({ header: '狀態', width: 'w-32', content: approvedBadge });
+    return cols;
+  };
+
+  const headerColumns = modeColumns(null);
+  const emptyText = data.length === 0 ? '目前無任何預約申請記錄' : '查無符合篩選條件的記錄';
+  const subTabs = tabMode === 'bookings'
+    ? REVIEW_TABS.map(t => ({ id: t.id as SubTab, label: t.label, count: reviewCounts[t.stage], badge: t.badge }))
+    : CLEANING_TABS.map(t => ({ id: t.id as SubTab, label: t.label, count: t.badge ? cleaningCounts[t.stage] : 0, badge: t.badge }));
 
   return (
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2 select-none">
           {tabMode === 'bookings' ? (
-            <>
-              <Calendar className="text-indigo-600" size={20} /> 預約申請審核
-            </>
+            <><Calendar className="text-indigo-600" size={20} /> 預約審核</>
           ) : tabMode === 'lock-management' ? (
-            <>
-              <Key className="text-indigo-600" size={20} /> 門鎖密碼管理
-            </>
+            <><Key className="text-indigo-600" size={20} /> 門鎖密碼</>
           ) : (
-            <>
-              <Calendar className="text-indigo-600" size={20} /> 空間打掃與清潔稽核
-            </>
+            <><Sparkles className="text-indigo-600" size={20} /> 清潔稽核</>
           )}
         </h3>
         {tabMode === 'bookings' && selectedIds.length > 0 && (
           <button
             onClick={handleDeleteSelected}
-            className="bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all shadow-md active:scale-95 flex items-center gap-1.5 animate-in fade-in duration-200 shrink-0"
+            className="bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all shadow-md active:scale-95 flex items-center gap-1.5 shrink-0"
           >
             🗑️ 刪除所選預約 ({selectedIds.length})
           </button>
         )}
       </div>
 
-      {tabMode === 'bookings' && (
-        <div className="bg-slate-50/60 border border-slate-200 rounded-2xl p-6 shadow-sm mb-6 flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="flex-1">
-            <h4 className="font-extrabold text-sm mb-2 text-slate-700 flex items-center gap-1.5 select-none">
-              <FileSpreadsheet className="text-emerald-600" size={16} /> Google 試算表排程匯入
-            </h4>
-            <p className="text-[11px] text-slate-500 leading-relaxed">
-              請輸入已共用為「知道連結的人均可檢視」的 Google 試算表連結。系統會自動解析視覺化格線、比對子空間（如第五教室），並覆蓋匯入場地預約。
-            </p>
-          </div>
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto shrink-0 md:max-w-xl flex-1">
-            <input
-              type="text"
-              placeholder="https://docs.google.com/spreadsheets/d/.../edit?usp=sharing"
-              className="p-2.5 border border-slate-200 rounded-xl text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 shadow-sm flex-1 font-mono"
-              value={sheetUrl}
-              onChange={e => setSheetUrl(e.target.value)}
-              disabled={isImporting}
-            />
+      {tabMode !== 'lock-management' && (
+        <div className={`flex overflow-x-auto scrollbar-hidden bg-slate-100 p-1.5 rounded-2xl gap-1.5 mb-4 md:mb-6 select-none ${tabMode === 'bookings' ? 'max-w-3xl' : 'max-w-2xl'}`}>
+          {subTabs.map(t => (
             <button
-              onClick={handleImport}
-              disabled={isImporting}
-              className={`font-bold py-2.5 px-4 rounded-xl text-xs transition-all shadow-sm active:scale-95 whitespace-nowrap flex items-center justify-center gap-2 ${
-                isImporting 
-                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed' 
-                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+              key={t.id}
+              onClick={() => { setSubTab(t.id); setSelectedIds([]); }}
+              className={`shrink-0 md:flex-1 py-2.5 md:py-3 px-3 md:px-4 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 whitespace-nowrap ${
+                subTab === t.id
+                  ? 'bg-white text-indigo-700 shadow-md shadow-indigo-100/50'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50/50'
               }`}
             >
-              {isImporting ? '🔄 正在解析...' : '📥 立即分析並匯入'}
+              <span>{t.label}</span>
+              {t.badge && t.count > 0 && (
+                <span className={`${t.badge} text-white text-[10px] font-black px-2 py-0.5 rounded-full leading-none`}>
+                  {t.count}
+                </span>
+              )}
             </button>
-          </div>
+          ))}
         </div>
       )}
 
-      {tabMode !== 'lock-management' && (
-        <div className={`flex bg-slate-100 p-1.5 rounded-2xl gap-1.5 mb-6 select-none ${tabMode === 'bookings' ? 'max-w-3xl' : 'max-w-2xl'}`}>
-          {tabMode === 'bookings' ? (
-            <>
-              <button
-                onClick={() => { setSubTab('pending'); setSelectedIds([]); }}
-                className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
-                  subTab === 'pending'
-                    ? 'bg-white text-indigo-700 shadow-md shadow-indigo-100/50'
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50/50'
-                }`}
-              >
-                <span>📋 待審核</span>
-                {data.filter(b => b.status === 'pending' && !overlapMap[b.id] && !hasEnded(b.booking_date, b.end_time)).length > 0 && (
-                  <span className="bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full leading-none">
-                    {data.filter(b => b.status === 'pending' && !overlapMap[b.id] && !hasEnded(b.booking_date, b.end_time)).length}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => { setSubTab('conflicts'); setSelectedIds([]); }}
-                className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
-                  subTab === 'conflicts'
-                    ? 'bg-white text-indigo-700 shadow-md shadow-indigo-100/50'
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50/50'
-                }`}
-              >
-                <span>⚠️ 有衝突</span>
-                {data.filter(b => b.status === 'pending' && !!overlapMap[b.id]).length > 0 && (
-                  <span className="bg-rose-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full leading-none">
-                    {data.filter(b => b.status === 'pending' && !!overlapMap[b.id]).length}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => { setSubTab('approved'); setSelectedIds([]); }}
-                className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
-                  subTab === 'approved'
-                    ? 'bg-white text-indigo-700 shadow-md shadow-indigo-100/50'
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50/50'
-                }`}
-              >
-                <span>✓ 審核通過</span>
-                {data.filter(b => b.status === 'approved').length > 0 && (
-                  <span className="bg-emerald-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full leading-none">
-                    {data.filter(b => b.status === 'approved').length}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => { setSubTab('expired'); setSelectedIds([]); }}
-                className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
-                  subTab === 'expired'
-                    ? 'bg-white text-indigo-700 shadow-md shadow-indigo-100/50'
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50/50'
-                }`}
-              >
-                <span>🕗 已過期</span>
-                {data.filter(b => b.status === 'pending' && hasEnded(b.booking_date, b.end_time)).length > 0 && (
-                  <span className="bg-slate-400 text-white text-[10px] font-black px-2 py-0.5 rounded-full leading-none">
-                    {data.filter(b => b.status === 'pending' && hasEnded(b.booking_date, b.end_time)).length}
-                  </span>
-                )}
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => { setSubTab('pending'); setSelectedIds([]); }}
-                className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
-                  subTab === 'pending'
-                    ? 'bg-white text-indigo-700 shadow-md shadow-indigo-100/50'
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50/50'
-                }`}
-              >
-                <span>🧹 待分配打掃</span>
-                {data.filter(b => {
-                  if (b.status !== 'approved' || b.is_returned) return false;
-                  const parts = (b.cleaning_assignments || '').split('::');
-                  const assignState = parts[1] || '';
-                  const cleanAssignText = parts[0] || '';
-                  const isSubmitted = assignState === 'submitted' || assignState === 'resubmitted';
-                  const isRejected = assignState === 'rejected';
-                  const overdue = isOverdue(b.booking_date, b.end_time);
-                  return !isSubmitted && !isRejected && !cleanAssignText && !overdue;
-                }).length > 0 && (
-                  <span className="bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full leading-none">
-                    {data.filter(b => {
-                      if (b.status !== 'approved' || b.is_returned) return false;
-                      const parts = (b.cleaning_assignments || '').split('::');
-                      const assignState = parts[1] || '';
-                      const cleanAssignText = parts[0] || '';
-                      const isSubmitted = assignState === 'submitted' || assignState === 'resubmitted';
-                      const isRejected = assignState === 'rejected';
-                      const overdue = isOverdue(b.booking_date, b.end_time);
-                      return !isSubmitted && !isRejected && !cleanAssignText && !overdue;
-                    }).length}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => { setSubTab('assigned'); setSelectedIds([]); }}
-                className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
-                  subTab === 'assigned'
-                    ? 'bg-white text-indigo-700 shadow-md shadow-indigo-100/50'
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50/50'
-                }`}
-              >
-                <span>✨ 已分配打掃</span>
-                {data.filter(b => {
-                  if (b.status !== 'approved' || b.is_returned) return false;
-                  const parts = (b.cleaning_assignments || '').split('::');
-                  const assignState = parts[1] || '';
-                  const cleanAssignText = parts[0] || '';
-                  const isSubmitted = assignState === 'submitted' || assignState === 'resubmitted';
-                  const isRejected = assignState === 'rejected';
-                  const overdue = isOverdue(b.booking_date, b.end_time);
-                  return !isSubmitted && !isRejected && !!cleanAssignText && !overdue;
-                }).length > 0 && (
-                  <span className="bg-indigo-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full leading-none">
-                    {data.filter(b => {
-                      if (b.status !== 'approved' || b.is_returned) return false;
-                      const parts = (b.cleaning_assignments || '').split('::');
-                      const assignState = parts[1] || '';
-                      const cleanAssignText = parts[0] || '';
-                      const isSubmitted = assignState === 'submitted' || assignState === 'resubmitted';
-                      const isRejected = assignState === 'rejected';
-                      const overdue = isOverdue(b.booking_date, b.end_time);
-                      return !isSubmitted && !isRejected && !!cleanAssignText && !overdue;
-                    }).length}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => { setSubTab('operations'); setSelectedIds([]); }}
-                className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
-                  subTab === 'operations'
-                    ? 'bg-white text-indigo-700 shadow-md shadow-indigo-100/50'
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50/50'
-                }`}
-              >
-                <span>🔍 待清潔檢查</span>
-                {data.filter(b => {
-                  if (b.status !== 'approved' || b.is_returned) return false;
-                  const parts = (b.cleaning_assignments || '').split('::');
-                  const assignState = parts[1] || '';
-                  const overdue = isOverdue(b.booking_date, b.end_time);
-                  return (assignState === 'submitted' || assignState === 'resubmitted' || assignState === 'rejected') && !overdue;
-                }).length > 0 && (
-                  <span className="bg-amber-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full leading-none animate-pulse">
-                    {data.filter(b => {
-                      if (b.status !== 'approved' || b.is_returned) return false;
-                      const parts = (b.cleaning_assignments || '').split('::');
-                      const assignState = parts[1] || '';
-                      const overdue = isOverdue(b.booking_date, b.end_time);
-                      return (assignState === 'submitted' || assignState === 'resubmitted' || assignState === 'rejected') && !overdue;
-                    }).length}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => { setSubTab('all'); setSelectedIds([]); }}
-                className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
-                  subTab === 'all'
-                    ? 'bg-white text-indigo-700 shadow-md shadow-indigo-100/50'
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50/50'
-                }`}
-              >
-                <span>📜 已歸還/打掃記錄</span>
-              </button>
-            </>
-          )}
-        </div>
-      )}
-            {/* ── Filters ── */}
-      <div className="p-6 bg-slate-50/60 border border-slate-200/80 rounded-2xl mb-6 shadow-sm select-none backdrop-blur-sm">
-        <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-1.5">
+      {/* 手機版篩選開關 */}
+      <button
+        type="button"
+        onClick={() => setFiltersOpen(v => !v)}
+        className="md:hidden w-full mb-4 flex items-center justify-between px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600"
+      >
+        <span className="flex items-center gap-1.5"><SlidersHorizontal size={14} /> 搜尋與篩選</span>
+        <span className="text-indigo-600">{activeFilterCount > 0 ? `已套用 ${activeFilterCount} 項` : filtersOpen ? '收起' : '展開'}</span>
+      </button>
+
+      {/* ── Filters ── */}
+      <div className={`${filtersOpen ? 'block' : 'hidden'} md:block p-4 md:p-6 bg-slate-50/60 border border-slate-200/80 rounded-2xl mb-6 shadow-sm select-none`}>
+        <div className="hidden md:flex text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 items-center gap-1.5">
           <span>🔍</span> 搜尋與篩選條件
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
           {/* 文字搜尋 */}
           <div className="relative">
             <input
@@ -693,11 +820,11 @@ export default function BookingsTab({ data, getToken, onRefresh, tabMode = 'book
           {/* 特定日期篩選 */}
           <div className="relative">
             <input
-              type={selectedDate ? "date" : "text"}
+              type={selectedDate ? 'date' : 'text'}
               placeholder="📅 選擇特定日期"
               value={selectedDate}
-              onFocus={(e) => { e.target.type = "date"; }}
-              onBlur={(e) => { if (!e.target.value) e.target.type = "text"; }}
+              onFocus={(e) => { e.target.type = 'date'; }}
+              onBlur={(e) => { if (!e.target.value) e.target.type = 'text'; }}
               onChange={e => setSelectedDate(e.target.value)}
               className="w-full pl-3 pr-8 py-2.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white font-bold text-slate-700 cursor-pointer shadow-sm transition-all"
             />
@@ -714,56 +841,34 @@ export default function BookingsTab({ data, getToken, onRefresh, tabMode = 'book
           </div>
 
           {/* 場地分類 */}
-          <div>
-            <select
-              value={selectedRoom}
-              onChange={e => setSelectedRoom(e.target.value)}
-              aria-label="依場地空間篩選"
-              className="w-full px-3 py-2.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white font-bold text-slate-700 shadow-sm transition-all cursor-pointer"
-            >
-              <option value="">💒 所有場地空間</option>
-              {uniqueRooms.map(room => (
-                <option key={room} value={room}>{room}</option>
-              ))}
-            </select>
-          </div>
+          <select
+            value={selectedRoom}
+            onChange={e => setSelectedRoom(e.target.value)}
+            aria-label="依場地空間篩選"
+            className="w-full px-3 py-2.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white font-bold text-slate-700 shadow-sm transition-all cursor-pointer"
+          >
+            <option value="">💒 所有場地空間</option>
+            {uniqueRooms.map(room => (
+              <option key={room} value={room}>{room}</option>
+            ))}
+          </select>
 
           {/* 時間排序 */}
-          <div>
-            <select
-              value={sortOrder}
-              onChange={e => setSortOrder(e.target.value)}
-              aria-label="依時間排序"
-              className="w-full px-3 py-2.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white font-bold text-slate-700 shadow-sm transition-all cursor-pointer"
-            >
-              <option value="desc">⏱️ 時間：新 → 舊</option>
-              <option value="asc">⏱️ 時間：舊 → 新</option>
-            </select>
-          </div>
+          <select
+            value={sortOrder}
+            onChange={e => setSortOrder(e.target.value)}
+            aria-label="依時間排序"
+            className="w-full px-3 py-2.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white font-bold text-slate-700 shadow-sm transition-all cursor-pointer"
+          >
+            <option value="desc">⏱️ 時間：新 → 舊</option>
+            <option value="asc">⏱️ 時間：舊 → 新</option>
+          </select>
         </div>
 
-        {/* 預約審核模式才顯示狀態篩選與衝突篩選 */}
+        {/* 預約審核模式才顯示衝突篩選 */}
         {tabMode === 'bookings' && (
-          <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t border-slate-200/60 pt-4">
-            {subTab === 'all' ? (
-              <div className="max-w-xs w-full">
-                <select
-                  value={selectedStatus}
-                  onChange={e => setSelectedStatus(e.target.value)}
-                  aria-label="依審核狀態篩選"
-                  className="w-full px-3 py-2.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white font-bold text-slate-700 shadow-sm transition-all cursor-pointer"
-                >
-                  <option value="">● 所有審核狀態</option>
-                  <option value="pending">● 待審核</option>
-                  <option value="approved">● 已核可</option>
-                  <option value="rejected">● 已拒絕</option>
-                </select>
-              </div>
-            ) : (
-              <div />
-            )}
-            
-            <label className="flex items-center gap-2 cursor-pointer select-none self-end sm:self-center">
+          <div className="mt-4 flex justify-end border-t border-slate-200/60 pt-4">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={showOnlyConflicts}
@@ -772,15 +877,7 @@ export default function BookingsTab({ data, getToken, onRefresh, tabMode = 'book
               />
               <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                 ⚠️ 僅顯示時段衝突的預約 (
-                <span className="text-rose-600 font-extrabold">
-                  {Object.keys(overlapMap).filter(id => {
-                    const b = data.find(x => x.id === Number(id));
-                    if (!b) return false;
-                    if (subTab === 'pending') return b.status === 'pending';
-                    if (subTab === 'operations') return b.status === 'approved';
-                    return true;
-                  }).length}
-                </span>
+                <span className="text-rose-600 font-extrabold">{conflictFilterCount}</span>
                 )
               </span>
             </label>
@@ -805,7 +902,52 @@ export default function BookingsTab({ data, getToken, onRefresh, tabMode = 'book
         </div>
       )}
 
-      <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-sm bg-white">
+      {/* 手機：卡片清單 */}
+      <div className="md:hidden space-y-3">
+        {tabMode === 'bookings' && filteredBookings.length > 0 && (
+          <label className="flex items-center gap-2 px-1 text-xs font-bold text-slate-600">
+            <input
+              type="checkbox"
+              checked={selectedIds.length === filteredBookings.length}
+              onChange={e => handleToggleAll(e.target.checked)}
+              className="w-4 h-4 text-indigo-600 border-slate-300 rounded"
+            />
+            全選（{filteredBookings.length}）
+          </label>
+        )}
+        {filteredBookings.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 italic bg-white border border-slate-200 rounded-2xl text-sm">{emptyText}</div>
+        ) : (
+          filteredBookings.map(b => (
+            <div
+              key={b.id}
+              className={`rounded-2xl border p-4 space-y-3 ${overlapMap[b.id] ? 'border-rose-200 bg-rose-50/60' : 'border-slate-200 bg-white'}`}
+            >
+              <div className="flex items-start gap-3">
+                {tabMode === 'bookings' && (
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(b.id)}
+                    onChange={e => handleToggleSelect(b.id, e.target.checked)}
+                    aria-label={`選取 ${b.full_name} 的預約`}
+                    className="w-4 h-4 mt-1 text-indigo-600 border-slate-300 rounded shrink-0"
+                  />
+                )}
+                <div className="min-w-0 flex-1">{renderInfo(b)}</div>
+              </div>
+              <div className="pt-3 border-t border-slate-100">{renderBorrower(b)}</div>
+              <div className="pt-3 border-t border-slate-100 flex flex-wrap items-start gap-3">
+                {modeColumns(b).map(col => (
+                  <div key={col.header}>{col.content}</div>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* 桌機：表格 */}
+      <div className="hidden md:block overflow-x-auto border border-slate-200/80 rounded-2xl shadow-sm bg-white">
         <table className="w-full text-left text-sm border-collapse">
           <thead>
             <tr className="bg-slate-50 text-slate-500 text-xs uppercase font-bold border-b border-slate-200 select-none">
@@ -815,466 +957,53 @@ export default function BookingsTab({ data, getToken, onRefresh, tabMode = 'book
                     type="checkbox"
                     checked={selectedIds.length === filteredBookings.length && filteredBookings.length > 0}
                     onChange={e => handleToggleAll(e.target.checked)}
+                    aria-label="全選"
                     className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
                   />
                 </th>
               )}
               <th className="p-4">預約資訊</th>
               <th className="p-4">借用人</th>
-              {tabMode === 'bookings' && (
-                <>
-                  <th className="p-4 w-32">狀態</th>
-                  <th className="p-4 w-44">審核與指派操作</th>
-                </>
-              )}
-              {tabMode === 'lock-management' && (
-                <>
-                  <th className="p-4 w-36">門鎖密碼</th>
-                  <th className="p-4 w-32">密碼管理</th>
-                </>
-              )}
-              {tabMode === 'cleaning' && (
-                <>
-                  <th className="p-4">打掃與清潔稽核</th>
-                  {subTab === 'all' && <th className="p-4 w-32">狀態</th>}
-                </>
-              )}
+              {headerColumns.map(col => (
+                <th key={col.header} className={`p-4 ${col.width || ''}`}>{col.header}</th>
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {filteredBookings.length === 0 ? (
               <tr>
                 <td
-                  colSpan={
-                    tabMode === 'bookings' ? 5 :
-                    tabMode === 'lock-management' ? 4 :
-                    (subTab === 'all' ? 4 : 3)
-                  }
+                  colSpan={2 + headerColumns.length + (tabMode === 'bookings' ? 1 : 0)}
                   className="p-8 text-center text-slate-400 italic bg-white rounded-b-2xl"
                 >
-                  {data.length === 0 ? '目前無任何預約申請記錄' : '查無符合篩選條件的記錄'}
+                  {emptyText}
                 </td>
               </tr>
             ) : (
-              filteredBookings.map((b) => {
-                const rawAssignments = b.cleaning_assignments || '';
-                const parts = rawAssignments.split('::');
-                const cleanAssignText = parts[0] || '';
-                const assignState = parts[1] || '';
-                const isSubmitted = assignState === 'submitted' || assignState === 'resubmitted';
-                const isRejected = assignState === 'rejected';
-                const overdue = isOverdue(b.booking_date, b.end_time);
-
-                return (
-                  <tr key={b.id} className={`transition-colors ${
-                    overlapMap[b.id] 
-                      ? 'bg-rose-50/85 hover:bg-rose-100/70 text-slate-800' 
-                      : 'hover:bg-slate-50/40'
-                  }`}>
-                    {tabMode === 'bookings' && (
-                      <td className="p-4 w-10 text-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.includes(b.id)}
-                          onChange={e => handleToggleSelect(b.id, e.target.checked)}
-                          className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
-                        />
-                      </td>
-                    )}
-                    <td className="p-4">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-extrabold text-slate-800 text-sm">{b.rooms?.name}</span>
-                        {b.booking_type && (
-                          <span className={`text-[9px] font-black px-1.5 py-0.5 rounded border select-none ${
-                            b.booking_type === '婚禮' ? 'bg-rose-50 text-rose-600 border-rose-100' :
-                            b.booking_type === '重要' ? 'bg-amber-50 text-amber-600 border-amber-100' :
-                            b.booking_type === '取消或異動' ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                            'bg-slate-50 text-slate-600 border-slate-200'
-                          }`}>
-                            {b.booking_type}
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-slate-500 font-semibold bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md inline-block mt-1">
-                        📅 {b.booking_date} {b.start_time?.substring(0, 5)}-{b.end_time?.substring(0, 5)}
-                      </div>
-                      <div className="text-xs text-slate-600 mt-2 whitespace-pre-wrap break-all border-l-2 border-indigo-200 pl-2.5 py-0.5 font-medium italic">
-                        {b.purpose} <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-normal not-italic ml-1">👥 {b.attendance_count}人</span>
-                      </div>
-                      <div className="text-[10px] text-slate-400 mt-1.5 font-bold">據點：{b.rooms?.branch}</div>
-                      {tabMode === 'bookings' && overlapMap[b.id] && overlapMap[b.id].type === 'conflict' && (
-                        <div className="mt-2.5 p-2.5 rounded-xl bg-rose-50/80 border border-rose-100/60 space-y-1.5 max-w-md animate-in fade-in slide-in-from-top-1 duration-200">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-rose-600 text-white animate-pulse">
-                              ⚠️ 空間時段衝突 (同場地)
-                            </span>
-                            <span className="text-[9px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded">
-                              申請順位: {String.fromCharCode(65 + overlapMap[b.id].index)}
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-rose-700 space-y-1 pt-1.5 border-t border-rose-100/50 font-medium">
-                            <div className="font-bold flex items-center gap-1">
-                              <span>🔗</span> 與以下預約時段重疊：
-                            </div>
-                            {overlapMap[b.id].conflictingWith.map((c, i) => (
-                              <div key={i} className="flex flex-wrap items-center gap-x-1 pl-2 border-l-2 border-rose-300">
-                                <span className="font-extrabold">{c.borrower}</span>
-                                <span className="text-slate-500 font-mono">({c.time})</span>
-                                <span className="text-rose-600 italic">「{c.purpose}」</span>
-                                <span className={`text-[8px] px-1 rounded-full font-black border ${
-                                  c.status === 'approved' 
-                                    ? 'bg-emerald-50 text-emerald-600 border-emerald-200' 
-                                    : 'bg-amber-50 text-amber-600 border-amber-200 animate-pulse'
-                                }`}>
-                                  {c.status === 'approved' ? '已核可' : '待審核'}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+              filteredBookings.map(b => (
+                <tr key={b.id} className={`transition-colors ${
+                  overlapMap[b.id]
+                    ? 'bg-rose-50/85 hover:bg-rose-100/70 text-slate-800'
+                    : 'hover:bg-slate-50/40'
+                }`}>
+                  {tabMode === 'bookings' && (
+                    <td className="p-4 w-10 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(b.id)}
+                        onChange={e => handleToggleSelect(b.id, e.target.checked)}
+                        aria-label={`選取 ${b.full_name} 的預約`}
+                        className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
+                      />
                     </td>
-                    <td className="p-4">
-                      <div className="font-bold text-slate-800 text-sm">{b.full_name}</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">📞 {b.phone}</div>
-                      <div className="text-[10px] text-slate-400 font-mono mt-0.5">{b.user_email}</div>
-                    </td>
-
-                    {/* ─── 預約管理模式 (bookings) 專屬列 ─── */}
-                    {tabMode === 'bookings' && (
-                      <>
-                        <td className="p-4 whitespace-nowrap">
-                          <div className="flex flex-col gap-1">
-                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black whitespace-nowrap border ${statusStyle[b.status] || statusStyle.pending}`}>
-                              {statusLabel[b.status] || '待審核'}
-                            </span>
-                            {b.status === 'rejected' && b.rejection_reason && (
-                              <div className="text-[10px] text-rose-600 bg-rose-50 border border-rose-100 rounded px-2 py-1 max-w-[160px] break-words leading-tight font-bold">
-                                📝 {b.rejection_reason}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="p-4">
-                          {b.status === 'pending' ? (
-                            <>
-                              <div className="flex gap-1.5 mb-2">
-                                <button
-                                  onClick={() => handleApprove(b.id, b.full_name)}
-                                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-colors active:scale-95"
-                                >
-                                  ✓ 核可
-                                </button>
-                                <button
-                                  onClick={() => handleOpenRejectModal(b.id, b.full_name)}
-                                  className="bg-rose-50 text-rose-600 border border-rose-200 px-2.5 py-1.5 rounded-lg text-xs font-bold hover:bg-rose-100 transition-colors active:scale-95"
-                                >
-                                  ✕ 拒絕
-                                </button>
-                              </div>
-                              <button
-                                onClick={() => { setAssigningBooking(b); setAssignRoomId(b.room_id); }}
-                                className={`text-xs px-2.5 py-1.5 rounded-lg border font-bold transition-all active:scale-95 ${b.rooms?.name === '💒 由教會分配' ? 'bg-amber-50 text-amber-700 border-amber-300 animate-pulse' : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100/60'}`}
-                              >
-                                📍 {b.rooms?.name === '💒 由教會分配' ? '指派場地' : '變更場地'}
-                              </button>
-                            </>
-                          ) : (
-                            <div className="flex flex-col gap-1.5 items-start">
-                              {b.status === 'approved' && !hasEnded(b.booking_date, b.end_time) && (
-                                <button
-                                  onClick={() => { setAssigningBooking(b); setAssignRoomId(b.room_id); }}
-                                  className="text-xs px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 font-bold hover:bg-indigo-100 transition-all active:scale-95 shadow-sm"
-                                >
-                                  📍 變更場地
-                                </button>
-                              )}
-                              <button
-                                onClick={() => handleOpenRejectModal(b.id, b.full_name)}
-                                className="bg-rose-50 text-rose-600 border border-rose-200 px-2.5 py-1.5 rounded-lg text-xs font-bold hover:bg-rose-100 transition-colors active:scale-95"
-                                title="取消核可並拒絕"
-                              >
-                                ✕ 撤銷核可
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </>
-                    )}
-
-                    {/* ─── 門鎖密碼管理模式 (lock-management) 專屬列 ─── */}
-                    {tabMode === 'lock-management' && (
-                      <>
-                        {/* 門鎖密碼 */}
-                        <td className="p-4">
-                          {b.access_code ? (
-                            <div className="flex flex-col items-start gap-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-mono bg-indigo-50/80 text-indigo-700 border border-indigo-100 px-2 py-0.5 rounded text-xs font-bold tracking-widest shadow-sm">
-                                  {revealedIds.includes(b.id) ? b.access_code : '••••'}
-                                </span>
-                                <button
-                                  onClick={() => setRevealedIds(prev => prev.includes(b.id) ? prev.filter(x => x !== b.id) : [...prev, b.id])}
-                                  data-no-debounce="true"
-                                  className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 transition-colors"
-                                  title={revealedIds.includes(b.id) ? '隱藏密碼' : '顯示密碼'}
-                                >
-                                  {revealedIds.includes(b.id) ? <EyeOff size={12} /> : <Eye size={12} />}
-                                </button>
-                              </div>
-                              {(b.tuya_device_id || b.rooms?.tuya_device_id) && (
-                                b.tuya_password_id
-                                  ? <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 inline-flex items-center gap-1 mt-0.5">● 智慧鎖已同步</span>
-                                  : <span className="text-[9px] font-bold text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200 inline-flex items-center gap-1 mt-0.5">▲ 門鎖不同步</span>
-                              )}
-                            </div>
-                          ) : hasEnded(b.booking_date, b.end_time) ? (
-                            <span className="text-slate-400 text-xs italic">已過期</span>
-                          ) : (
-                            <span className="text-slate-400 text-xs italic">未發送</span>
-                          )}
-                        </td>
-
-                        {/* 密碼管理 */}
-                        <td className="p-4">
-                          {hasEnded(b.booking_date, b.end_time) ? (
-                            <span className="text-slate-400 text-xs italic">已過期</span>
-                          ) : b.access_code ? (
-                            <div className="flex flex-col gap-1.5 items-start">
-                              <button
-                                onClick={() => handleResendEmail(b.id)}
-                                className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 px-2.5 py-1.5 rounded-lg font-bold transition-all active:scale-95 flex items-center justify-center gap-1 shadow-sm w-full sm:w-auto whitespace-nowrap"
-                                title="重新發送密碼通知信給借用人"
-                              >
-                                ✉️ 重發郵件
-                              </button>
-                              <button
-                                onClick={() => handleUpdatePassword(b.id)}
-                                className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-1.5 rounded-lg font-bold transition-all active:scale-95 flex items-center justify-center gap-1 shadow-sm w-full sm:w-auto whitespace-nowrap"
-                                title="重新產生隨機密碼並更新同步"
-                              >
-                                🔄 更新密碼
-                              </button>
-                              <button
-                                onClick={() => { setAssigningBooking(b); setAssignRoomId(b.room_id); }}
-                                className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-1.5 rounded-lg font-bold transition-all active:scale-95 flex items-center justify-center gap-1 shadow-sm w-full sm:w-auto whitespace-nowrap"
-                              >
-                                📍 變更場地
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col gap-1.5 items-start">
-                              <button
-                                onClick={() => handleSendPassword(b.id)}
-                                className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-100 px-2.5 py-1.5 rounded-lg flex items-center gap-1 font-bold transition-all shadow-sm active:scale-95 w-full sm:w-auto whitespace-nowrap"
-                              >
-                                <Key size={10} /> 發送密碼
-                              </button>
-                              <button
-                                onClick={() => { setAssigningBooking(b); setAssignRoomId(b.room_id); }}
-                                className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-1.5 rounded-lg font-bold transition-all active:scale-95 flex items-center justify-center gap-1 shadow-sm w-full sm:w-auto whitespace-nowrap"
-                              >
-                                📍 變更場地
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </>
-                    )}
-                    
-                    {/* ─── 清潔管理稽核模式 (cleaning) 專屬列 ─── */}
-                    {tabMode === 'cleaning' && (
-                      <>
-                        {/* 1. 待指派與執行選單 */}
-                        {subTab === 'pending' && (
-                          <td className="p-4">
-                            <div className="flex flex-col items-stretch gap-1.5 min-w-[130px] max-w-[160px]">
-                              {/* 使用狀態 */}
-                              {getUsageStatus(b.booking_date, b.start_time) === 'using' ? (
-                                <div className="px-2.5 py-1 text-[10px] font-bold rounded-full border text-center bg-sky-50 text-sky-600 border-sky-200 select-none animate-pulse">
-                                  ● 使用者使用中
-                                </div>
-                              ) : getUsageStatus(b.booking_date, b.start_time) === 'not_started' ? (
-                                <div className="px-2.5 py-1 text-[10px] font-bold rounded-full border text-center bg-slate-50 text-slate-400 border-slate-200 select-none">
-                                  尚未開始
-                                </div>
-                              ) : (
-                                <div className="px-2.5 py-1 text-[10px] font-bold rounded-full border text-center bg-slate-50 text-slate-400 border-slate-200 select-none">
-                                  使用者還未使用
-                                </div>
-                              )}
-                              
-                              {/* 指派狀態 */}
-                              <div className="px-2 py-0.5 text-[9px] font-black rounded border text-center bg-amber-50 text-amber-700 border-amber-200 select-none animate-pulse">
-                                ○ 待指派打掃
-                              </div>
-                              
-                              {(() => {
-                                const isNotStarted = getUsageStatus(b.booking_date, b.start_time) === 'not_started';
-                                return (
-                                  <button
-                                    disabled={isNotStarted}
-                                    onClick={async () => {
-                                      setAssigningCleaningBooking(b);
-                                      try {
-                                        const res = await apiFetchPublicSpaces(b.rooms?.branch);
-                                        if (Array.isArray(res)) setPublicSpaces(res);
-                                      } catch (e) {
-                                        console.error(e);
-                                      }
-                                    }}
-                                    className={`px-2.5 py-1 text-[10px] font-bold rounded-full text-center w-full transition-all duration-200 border ${
-                                      isNotStarted
-                                        ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
-                                        : 'text-indigo-600 hover:bg-indigo-50 border border-indigo-200'
-                                    }`}
-                                    title={isNotStarted ? '借用時間尚未開始，無法分配打掃' : ''}
-                                  >
-                                    {isNotStarted ? '時間未到' : '🧹 分配打掃'}
-                                  </button>
-                                );
-                              })()}
-                            </div>
-                          </td>
-                        )}
-
-                        {/* 已指派打掃選單 */}
-                        {subTab === 'assigned' && (
-                          <td className="p-4">
-                            <div className="flex flex-col items-stretch gap-1.5 min-w-[130px] max-w-[160px]">
-                              {/* 使用狀態 */}
-                              {getUsageStatus(b.booking_date, b.start_time) === 'using' ? (
-                                <div className="px-2.5 py-1 text-[10px] font-bold rounded-full border text-center bg-sky-50 text-sky-600 border-sky-200 select-none animate-pulse">
-                                  ● 使用者使用中
-                                </div>
-                              ) : getUsageStatus(b.booking_date, b.start_time) === 'not_started' ? (
-                                <div className="px-2.5 py-1 text-[10px] font-bold rounded-full border text-center bg-slate-50 text-slate-400 border-slate-200 select-none">
-                                  尚未開始
-                                </div>
-                              ) : (
-                                <div className="px-2.5 py-1 text-[10px] font-bold rounded-full border text-center bg-slate-50 text-slate-400 border-slate-200 select-none">
-                                  使用者還未使用
-                                </div>
-                              )}
-                              
-                              {/* 指派狀態 */}
-                              <div className="px-2 py-0.5 text-[9px] font-black rounded border text-center bg-emerald-50 text-emerald-700 border-emerald-200 select-none">
-                                ● 已指派打掃
-                              </div>
-                              
-                              <button
-                                onClick={async () => {
-                                  setAssigningCleaningBooking(b);
-                                  try {
-                                    const res = await apiFetchPublicSpaces(b.rooms?.branch);
-                                    if (Array.isArray(res)) setPublicSpaces(res);
-                                  } catch (e) {
-                                    console.error(e);
-                                  }
-                                }}
-                                className="px-2.5 py-1 text-[10px] font-bold rounded-full text-indigo-600 hover:bg-indigo-50 border border-indigo-200 transition-colors text-center w-full"
-                              >
-                                🧹 重新分配
-                              </button>
-                              {cleanAssignText && (
-                                <div className="text-[9px] text-emerald-600 font-semibold text-center mt-0.5 bg-emerald-50/30 py-0.5 border border-emerald-100 rounded">
-                                  指派：{cleanAssignText}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                        )}
-
-                        {/* 2. 待清潔檢查選單 */}
-                        {subTab === 'operations' && (
-                          <td className="p-4">
-                            <div className="flex flex-col items-stretch gap-1.5 min-w-[130px]">
-                              {isSubmitted ? (
-                                <>
-                                  <div className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 px-2 py-1 rounded-md font-bold animate-pulse text-center select-none">
-                                    {assignState === 'resubmitted' ? '🔔 待檢查 (已複檢)' : '🔔 待檢查 (已打掃)'}
-                                  </div>
-                                  <button
-                                    onClick={() => setInspectingBooking(b)}
-                                    className="px-2.5 py-1 text-[10px] font-black rounded-lg bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition-colors shadow-sm text-center"
-                                  >
-                                    🔍 待檢查
-                                  </button>
-                                  <button
-                                    onClick={() => handleRejectCleaning(b)}
-                                    className="px-2.5 py-1 text-[10px] font-black rounded-lg bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 transition-colors shadow-sm text-center"
-                                  >
-                                    ❌ 檢查退回
-                                  </button>
-                                </>
-                              ) : isRejected ? (
-                                <>
-                                  <div className="text-[10px] text-rose-600 bg-rose-50 border border-rose-200 px-2 py-1 rounded-md font-bold text-center select-none">
-                                    ⚠️ 檢查退回 (待改善)
-                                  </div>
-                                  <button
-                                    onClick={() => setInspectingBooking(b)}
-                                    className="px-2.5 py-1 text-[10px] font-black rounded-lg bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition-colors shadow-sm text-center animate-pulse"
-                                  >
-                                    🔍 待檢查
-                                  </button>
-                                </>
-                              ) : null}
-                              {cleanAssignText && (
-                                <div className="text-[9px] text-emerald-600 font-semibold text-center mt-0.5">
-                                  指派：{cleanAssignText}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                        )}
-
-                        {/* 3. 已歸還/打掃記錄選單 */}
-                        {subTab === 'all' && (
-                          <>
-                            <td className="p-4">
-                              <div className="flex flex-col items-stretch gap-1.5 min-w-[130px]">
-                                {b.is_returned ? (
-                                  <span className="px-2.5 py-1 text-[10px] font-bold rounded-full border text-center bg-emerald-50 text-emerald-700 border-emerald-200 select-none">
-                                    歸還成功
-                                  </span>
-                                ) : overdue ? (
-                                  <div className="flex flex-col gap-1 items-stretch">
-                                    <span className="px-2.5 py-1 text-[10px] font-extrabold rounded-md border text-center bg-rose-50 text-rose-700 border-rose-200 select-none">
-                                      🚨 逾期未歸還
-                                    </span>
-                                    {b.violation && (
-                                      <div className="text-[9px] text-rose-600 bg-rose-50/50 border border-rose-100 py-0.5 rounded text-center font-bold">
-                                        已記點: {b.violation.reason || "未完整復歸"}
-                                      </div>
-                                    )}
-                                    <div className="text-[9px] text-slate-500 bg-slate-50 border border-slate-200 py-0.5 rounded text-center font-semibold">
-                                      {isSubmitted
-                                        ? '打掃狀態: 待清潔檢查'
-                                        : isRejected
-                                        ? '打掃狀態: 清潔退回'
-                                        : cleanAssignText
-                                        ? `打掃狀態: 已指派(${cleanAssignText})`
-                                        : '打掃狀態: 未指派'}
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <span className="text-slate-400 text-xs italic text-center">無指派/進行中</span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="p-4 whitespace-nowrap">
-                              <span className="px-2.5 py-1 rounded-full text-[10px] font-black whitespace-nowrap border bg-emerald-50 text-emerald-700 border-emerald-200">
-                                已核可
-                              </span>
-                            </td>
-                          </>
-                        )}
-                      </>
-                    )}
-                  </tr>
-                );
-              })
+                  )}
+                  <td className="p-4">{renderInfo(b)}</td>
+                  <td className="p-4">{renderBorrower(b)}</td>
+                  {modeColumns(b).map(col => (
+                    <td key={col.header} className="p-4">{col.content}</td>
+                  ))}
+                </tr>
+              ))
             )}
           </tbody>
         </table>

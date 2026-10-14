@@ -2,6 +2,7 @@ import { useCallback, useState, useEffect } from 'react';
 import { useAuth } from '@church/shared/auth';
 import { ShieldAlert } from 'lucide-react';
 import { BRANCHES } from '@church/shared/constants';
+import { ROLE_LABEL } from './navigation';
 import { apiFetchUserRoles, apiUpdateUserRole } from '@church/shared/api';
 import type { AdminUser } from '@church/shared/types';
 
@@ -20,13 +21,7 @@ export default function SuperAdminPanel() {
   }, [fetchUsers]);
 
   const handleRoleChange = async (id: string, role: string, userEmail: string) => {
-    const roleLabels: Record<string, string> = {
-      user: '一般使用者 (User)',
-      admin: '據點管理員 (Admin)',
-      system_admin: '系統管理員 (SuperAdmin)',
-      inspector: '同工 (Inspector)',
-    };
-    if (!window.confirm(`確定要將使用者 ${userEmail} 的系統角色變更為「${roleLabels[role]}」嗎？`)) {
+    if (!window.confirm(`確定要將使用者 ${userEmail} 的系統角色變更為「${ROLE_LABEL[role] || role}」嗎？`)) {
       fetchUsers();
       return;
     }
@@ -61,16 +56,17 @@ export default function SuperAdminPanel() {
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm mt-8 animate-in fade-in duration-300">
-      <div className="p-6 border-b border-rose-100 flex items-center justify-between bg-rose-50/50 backdrop-blur-sm">
-        <h2 className="text-base font-extrabold flex items-center gap-2 text-rose-900 select-none">
+    <div>
+      <div className="mb-6">
+        <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2 select-none">
           <ShieldAlert className="text-rose-600" size={20} />
-          全系統權限控管 (最高權限)
-        </h2>
+          使用者角色
+        </h3>
+        <p className="text-xs text-slate-500 mt-1">全系統權限控管，變更會套用到所有據點。</p>
       </div>
 
-      <div className="p-6">
-        <div className="overflow-x-auto border border-slate-100 rounded-2xl">
+      <div>
+        <div className="overflow-x-auto border border-slate-200 rounded-2xl bg-white">
           <table className="w-full text-left text-sm border-collapse bg-white">
             <thead>
               <tr className="bg-slate-50 text-slate-500 text-xs uppercase font-bold tracking-wider border-b border-slate-100 select-none">
@@ -94,10 +90,9 @@ export default function SuperAdminPanel() {
                       onChange={e => handleRoleChange(u.id, e.target.value, u.email)}
                       className="text-xs border border-slate-200 rounded-xl py-2 px-3 bg-white font-bold text-slate-700 focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 focus:outline-none transition-all shadow-sm cursor-pointer"
                     >
-                      <option value="user">一般使用者 (User)</option>
-                      <option value="admin">據點管理員 (Admin)</option>
-                      <option value="inspector">同工 (Inspector)</option>
-                      <option value="system_admin">系統管理員 (SuperAdmin)</option>
+                      {['user', 'admin', 'inspector', 'system_admin'].map(r => (
+                        <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+                      ))}
                     </select>
                   </td>
                   <td className="p-4">

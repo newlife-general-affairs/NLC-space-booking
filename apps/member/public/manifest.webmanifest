@@ -21,6 +21,6 @@
   ],
   "shortcuts": [
     { "name": "立即預約", "short_name": "預約", "url": "/?tab=booking&source=shortcut" },
-    { "name": "我的預約", "short_name": "紀錄", "url": "/?tab=records&source=shortcut" }
+    { "name": "我的預約", "short_name": "我的", "url": "/?tab=me&source=shortcut" }
   ]
 }

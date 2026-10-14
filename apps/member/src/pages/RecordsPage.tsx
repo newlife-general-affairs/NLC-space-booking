@@ -7,7 +7,6 @@ interface RecordsPageProps {
   bookings: Booking[];
   onStartCleanup: (booking: Booking) => void;
   onReportIssue: (booking: Booking) => void;
-  onBackToHome?: () => void;
 }
 
 type Segment = 'upcoming' | 'cleanup' | 'completed' | 'rejected';
@@ -134,7 +133,7 @@ export default function RecordsPage({ bookings, onStartCleanup, onReportIssue }:
   const detailOverdue = detail ? isOverdue(detail.booking_date, detail.end_time) : false;
 
   return (
-    <div className="py-4 space-y-4">
+    <div className="pt-3 pb-1 space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-black text-ink flex items-center gap-2">
           <ClipboardList size={18} className="text-primary" /> 我的預約

@@ -32,11 +32,14 @@ export default function WeeklyBulletin({
   isAdmin = false,
   onStartBooking,
   onBack,
+  showSpecialEvents = false,
 }: {
   currentBranch: string;
   isAdmin?: boolean;
   onStartBooking?: (date?: string, roomId?: number) => void;
   onBack?: () => void;
+  // 在看板上方列出本週婚禮／重要活動，並在手機版日期上標示
+  showSpecialEvents?: boolean;
 }) {
   const { getToken } = useAuth();
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -245,6 +248,27 @@ export default function WeeklyBulletin({
     const idx = weekDays.findIndex(d => formatDate(d) === formatDate(new Date()));
     return idx >= 0 ? idx : 0;
   });
+
+  // 同一天、同類型、同用途的多筆借用視為同一個活動
+  const specialEvents: { key: string; date: string; type: string; title: string; rooms: string[]; start: string; end: string }[] = [];
+  if (showSpecialEvents) {
+    bookings
+      .filter(b => b.booking_type === '婚禮' || b.booking_type === '重要')
+      .forEach(b => {
+        const key = `${b.booking_date}::${b.booking_type}::${b.purpose}`;
+        const existing = specialEvents.find(e => e.key === key);
+        const roomName = b.rooms.name;
+        if (existing) {
+          if (!existing.rooms.includes(roomName)) existing.rooms.push(roomName);
+          if (b.start_time < existing.start) existing.start = b.start_time;
+          if (b.end_time > existing.end) existing.end = b.end_time;
+        } else {
+          specialEvents.push({ key, date: b.booking_date, type: b.booking_type, title: b.purpose, rooms: [roomName], start: b.start_time, end: b.end_time });
+        }
+      });
+    specialEvents.sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
+  }
+  const specialEventDates = new Set(specialEvents.map(e => e.date));
 
   // 1. 找出所有的 Parent Room IDs
   const parentIds = new Set<number>();
@@ -589,6 +613,39 @@ export default function WeeklyBulletin({
         </div>
       </div>
 
+      {showSpecialEvents && (
+        <div className="px-4 md:px-6 py-3 border-b border-slate-200 bg-amber-50/40">
+          <div className="text-xs font-black text-slate-600 mb-2">✨ 本週婚禮與重要活動</div>
+          {specialEvents.length === 0 ? (
+            <div className="text-xs text-slate-400 font-medium">本週沒有婚禮或重要活動</div>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {specialEvents.map(ev => {
+                const idx = weekDays.findIndex(d => formatDate(d) === ev.date);
+                return (
+                  <button
+                    key={ev.key}
+                    type="button"
+                    onClick={() => { if (idx >= 0) setMobileDayIdx(idx); }}
+                    className="flex items-start gap-2 text-left text-xs"
+                  >
+                    <span className={`shrink-0 px-2 py-0.5 rounded-full font-black text-[10px] ${ev.type === '婚禮' ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'}`}>
+                      {ev.type}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="font-bold text-slate-700">
+                        {ev.date.substring(5).replace('-', '/')}（{['一', '二', '三', '四', '五', '六', '日'][idx] ?? ''}）{ev.start.substring(0, 5)}-{ev.end.substring(0, 5)} {ev.title}
+                      </span>
+                      <span className="block text-[11px] text-slate-400">{ev.rooms.join('、')}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 手機版：單日清單檢視 */}
       <div className="md:hidden">
         <div className="flex gap-1.5 overflow-x-auto scrollbar-hidden px-3 py-3 border-b border-slate-200">
@@ -606,6 +663,9 @@ export default function WeeklyBulletin({
               >
                 <span className="text-[10px]">{['一', '二', '三', '四', '五', '六', '日'][idx]}</span>
                 <span className="text-sm">{day.getDate()}</span>
+                {showSpecialEvents && (
+                  <span className={`w-1.5 h-1.5 rounded-full ${specialEventDates.has(formatDate(day)) ? (isSelected ? 'bg-white' : 'bg-rose-500') : 'bg-transparent'}`} />
+                )}
               </button>
             );
           })}

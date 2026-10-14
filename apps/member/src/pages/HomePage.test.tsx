@@ -32,21 +32,15 @@ const mockAnnouncements = [
 ];
 
 describe('HomePage Accessibility and Layout Tests', () => {
-  const mockSelectBranch = jest.fn();
-  const mockTabChange = jest.fn();
 
   test('狀態卡片應具備 role="status" 與 aria-live="polite" 以符合 WCAG 無障礙宣告', () => {
     render(
       <HomePage
-        currentBranch="仁愛堂"
-        role="user"
         user={mockUser}
         userProfile={mockUserProfile}
         announcements={mockAnnouncements}
         disqualifiedZones={[]}
         isAdmin={false}
-        onSelectBranch={mockSelectBranch}
-        onTabChange={mockTabChange}
       />
     );
 
@@ -62,15 +56,11 @@ describe('HomePage Accessibility and Layout Tests', () => {
   test('同工管理員視角下的狀態卡片也應具備 WCAG 屬性', () => {
     render(
       <HomePage
-        currentBranch="仁愛堂"
-        role="admin"
         user={mockUser}
         userProfile={mockUserProfile}
         announcements={mockAnnouncements}
         disqualifiedZones={[]}
         isAdmin={true}
-        onSelectBranch={mockSelectBranch}
-        onTabChange={mockTabChange}
       />
     );
 
@@ -86,13 +76,9 @@ describe('HomePage Accessibility and Layout Tests', () => {
   test('問候區與下拉據點切換選單應正確載入並顯示使用者姓名', () => {
     render(
       <HomePage
-        currentBranch="仁愛堂"
-        role="user"
         user={mockUser}
         userProfile={mockUserProfile}
         announcements={mockAnnouncements}
-        onSelectBranch={mockSelectBranch}
-        onTabChange={mockTabChange}
       />
     );
 

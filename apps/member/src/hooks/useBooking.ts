@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import type { Room, BookingFormState, StatusMsg, BookingCreatePayload } from '@church/shared/types';
 import { apiCheckAvailability, apiCreateBooking, apiSaveProfile } from '@church/shared/api';
 import { bookingDraftService } from '../services/booking/BookingDraftService';
+import type { MemberTab } from '../navigation';
 
 const DEFAULT_BOOKING_STATE: BookingFormState = {
   slots: [{ id: '1', date: '', startTime: '', endTime: '' }],
@@ -19,7 +20,7 @@ interface UseBookingOptions {
   isAdmin: boolean;
   userEmail?: string;
   getToken: () => string;
-  onSuccess: (tab: string) => void;
+  onSuccess: (tab: MemberTab) => void;
   onProfileAutoSaved?: (profile: { fullName: string; phone: string; pastoralZone: string }) => void;
 }
 
@@ -315,7 +316,7 @@ export function useBooking({ rooms, currentBranch, isAdmin, userEmail, getToken,
         });
         setBookingStep(1);
         setBookingStarted(false);
-        onSuccess('records');
+        onSuccess('me');
       } else {
         setStatusMsg({ type: 'error', text: data.error });
       }
