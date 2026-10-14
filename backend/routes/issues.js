@@ -4,8 +4,8 @@ const { supabase } = require('../database');
 const { authMiddleware, requireRole } = require('../authMiddleware');
 const { sanitizeString, isAllowed, ALLOWED_ISSUE_STATUSES } = require('../validators');
 
-// 檢視場地問題 (依據點過濾)
-router.get('/', authMiddleware, requireRole(['admin', 'system_admin']), async (req, res) => {
+// 檢視場地問題 (依據點過濾；查察員可唯讀檢視所屬據點)
+router.get('/', authMiddleware, requireRole(['admin', 'system_admin', 'inspector']), async (req, res) => {
   const { branch } = req.query;
 
   let targetBranch = branch;
@@ -36,8 +36,8 @@ router.post('/', authMiddleware, async (req, res) => {
 
   const cleanDescription = sanitizeString(description, 1000);
 
-  // 一般使用者僅能回報有核可借用，且在借用期間至借用結束後 8 小時內的場地問題 (管理員不受此限)
-  if (req.user.role !== 'admin' && req.user.role !== 'system_admin') {
+  // 一般使用者僅能回報有核可借用，且在借用期間至借用結束後 8 小時內的場地問題 (管理員與查察員不受此限)
+  if (!['admin', 'system_admin', 'inspector'].includes(req.user.role)) {
     const { data: userBookings, error: bookingError } = await supabase
       .from('bookings')
       .select('booking_date, start_time, end_time, status')

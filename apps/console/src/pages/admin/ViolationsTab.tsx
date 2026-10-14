@@ -312,7 +312,7 @@ export default function ViolationsTab({ data, getToken, onRefresh, currentBranch
         </div>
 
         {Object.keys(pastorSummary).length === 0 ? (
-          <div className="text-center p-8 bg-zinc-950 border border-dashed border-zinc-800 rounded-2xl text-xs text-zinc-500 italic">
+          <div className="text-center p-8 bg-white border border-dashed border-slate-300 rounded-2xl text-xs text-slate-500 italic">
             此月份無任何未撤銷的違規扣點紀錄
           </div>
         ) : (
@@ -327,7 +327,7 @@ export default function ViolationsTab({ data, getToken, onRefresh, currentBranch
                 ? 'border-rose-500/30 bg-rose-500/5 ring-1 ring-rose-500/10'
                 : stats.points >= 3
                 ? 'border-amber-500/30 bg-amber-500/5 ring-1 ring-amber-500/10'
-                : 'border-zinc-800 bg-zinc-900';
+                : 'border-slate-200 bg-white';
 
               return (
                 <div
@@ -335,34 +335,34 @@ export default function ViolationsTab({ data, getToken, onRefresh, currentBranch
                   className={`p-4 border rounded-2xl shadow-md transition-all hover:shadow-lg flex flex-col justify-between ${cardColorClass}`}
                 >
                   <div className="flex justify-between items-start gap-2">
-                    <div className="font-extrabold text-zinc-200 text-sm">{pZone}</div>
+                    <div className="font-extrabold text-slate-800 text-sm">{pZone}</div>
                     {stats.suspended ? (
-                      <span className="px-2 py-0.5 text-[9px] font-black rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20 animate-pulse">
+                      <span className="px-2 py-0.5 text-[9px] font-black rounded-md bg-rose-50 text-rose-700 border border-rose-200 animate-pulse">
                         次月停權 ❌
                       </span>
                     ) : (
-                      <span className="px-2 py-0.5 text-[9px] font-black rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      <span className="px-2 py-0.5 text-[9px] font-black rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
                         資格正常 ✅
                       </span>
                     )}
                   </div>
                   
                   {stats.suspended && (
-                    <div className="text-[10px] font-extrabold text-rose-400 mt-2 bg-rose-500/5 p-1.5 rounded-lg border border-rose-500/10 text-center">
+                    <div className="text-[10px] font-extrabold text-rose-700 mt-2 bg-rose-50 p-1.5 rounded-lg border border-rose-500/10 text-center">
                       ⏳ 停權倒數生效剩餘 {daysLeft} 天
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-zinc-800 text-center select-none">
+                  <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-slate-200 text-center select-none">
                     <div>
-                      <span className="text-[10px] text-zinc-500 font-bold block">累計扣分</span>
-                      <span className={`text-sm font-black ${stats.points >= 5 ? 'text-rose-400' : 'text-zinc-300'}`}>
+                      <span className="text-[10px] text-slate-500 font-bold block">累計扣分</span>
+                      <span className={`text-sm font-black ${stats.points >= 5 ? 'text-rose-600' : 'text-slate-700'}`}>
                         {stats.points} 點
                       </span>
                     </div>
                     <div>
-                      <span className="text-[10px] text-zinc-500 font-bold block">違規次數</span>
-                      <span className={`text-sm font-black ${stats.count >= 2 ? 'text-rose-400' : 'text-zinc-300'}`}>
+                      <span className="text-[10px] text-slate-500 font-bold block">違規次數</span>
+                      <span className={`text-sm font-black ${stats.count >= 2 ? 'text-rose-600' : 'text-slate-700'}`}>
                         {stats.count} 次
                       </span>
                     </div>
