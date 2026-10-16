@@ -250,21 +250,23 @@ export function useBooking({ rooms, currentBranch, isAdmin, userEmail, getToken,
     }
 
     setBookingSubmitting(true);
-    const availabilityResults = await Promise.all(
-      bookingState.slots.map((slot) =>
-        apiCheckAvailability(slot.date, slot.startTime, slot.endTime),
-      ),
-    );
-    const bookedRoomIds = new Set(availabilityResults.flat());
-    const conflictingRooms = selectedRooms.filter((room) => bookedRoomIds.has(room.id));
-    if (conflictingRooms.length > 0) {
-      setStatusMsg({
-        type: 'error',
-        text: `❌ 場地「${conflictingRooms.map((room) => room.name).join('、')}」在此時段已被預約！`,
-      });
-      return;
-    }
+    // 可用性檢查放在 try 內：發現衝突提早 return 或請求失敗時，都會經過 finally 重設送出狀態
     try {
+      const availabilityResults = await Promise.all(
+        bookingState.slots.map((slot) =>
+          apiCheckAvailability(slot.date, slot.startTime, slot.endTime),
+        ),
+      );
+      const bookedRoomIds = new Set(availabilityResults.flat());
+      const conflictingRooms = selectedRooms.filter((room) => bookedRoomIds.has(room.id));
+      if (conflictingRooms.length > 0) {
+        setStatusMsg({
+          type: 'error',
+          text: `❌ 場地「${conflictingRooms.map((room) => room.name).join('、')}」在此時段已被預約！`,
+        });
+        return;
+      }
+
       const payload: BookingCreatePayload = {
         slots: bookingState.slots,
         fullName: bookingState.fullName,
