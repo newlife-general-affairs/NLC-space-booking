@@ -1,5 +1,6 @@
 import { ChevronRight, LogOut, MapPin, UserRound } from 'lucide-react';
-import type { Booking, UserProfile } from '@church/shared/types';
+import type { Booking, Room, UserProfile } from '@church/shared/types';
+import type { BookingEditInput, ManageResult } from '../hooks/useBookingManage';
 import { Button } from '../ui';
 import RecordsPage from './RecordsPage';
 
@@ -8,6 +9,11 @@ interface MePageProps {
   userProfile: UserProfile | null;
   currentBranch: string;
   bookings: Booking[];
+  rooms: Room[];
+  canBypassSevenDays: boolean;
+  manageBusy: boolean;
+  onUpdateBooking: (booking: Booking, input: BookingEditInput) => Promise<ManageResult>;
+  onCancelBooking: (booking: Booking) => Promise<ManageResult>;
   onOpenProfile: () => void;
   onSwitchBranch: () => void;
   onSignOut: () => void;
@@ -20,6 +26,11 @@ export default function MePage({
   userProfile,
   currentBranch,
   bookings,
+  rooms,
+  canBypassSevenDays,
+  manageBusy,
+  onUpdateBooking,
+  onCancelBooking,
   onOpenProfile,
   onSwitchBranch,
   onSignOut,
@@ -66,6 +77,11 @@ export default function MePage({
 
       <RecordsPage
         bookings={bookings}
+        rooms={rooms}
+        canBypassSevenDays={canBypassSevenDays}
+        manageBusy={manageBusy}
+        onUpdateBooking={onUpdateBooking}
+        onCancelBooking={onCancelBooking}
         onStartCleanup={onStartCleanup}
         onReportIssue={onReportIssue}
       />

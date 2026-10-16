@@ -8,8 +8,8 @@
 /** 允許的使用者角色 */
 const ALLOWED_ROLES = ['user', 'admin', 'system_admin', 'inspector'];
 
-/** 允許的借用類型 */
-const ALLOWED_BOOKING_TYPES = ['一般借用', '婚禮', '重要', '取消或異動'];
+/** 允許的借用類型（「取消或異動」只由表單匯入直接寫入，不經過預約管線） */
+const ALLOWED_BOOKING_TYPES = ['一般借用', '婚禮', '重要'];
 
 /** 管理端允許變更的預約狀態 */
 const ALLOWED_BOOKING_STATUSES = ['approved', 'rejected'];

@@ -116,6 +116,21 @@ export const apiCreateBooking = (token: string, data: object) =>
     body: JSON.stringify(data),
   });
 
+/** 使用者編輯自己的預約（日期、時段、場地、人數、用途） */
+export const apiUpdateOwnBooking = (token: string, id: number, data: {
+  date: string;
+  startTime: string;
+  endTime: string;
+  roomId: number;
+  attendanceCount: number;
+  purpose: string;
+}) =>
+  fetch(`/api/bookings/${id}`, {
+    method: 'PUT',
+    headers: jsonHeaders(token),
+    body: JSON.stringify(data),
+  });
+
 export const apiCancelBooking = (token: string, id: number) =>
   fetch(`/api/bookings/${id}/cancel`, {
     method: 'POST',

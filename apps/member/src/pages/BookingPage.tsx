@@ -2,39 +2,11 @@ import { useMemo, useState, useEffect } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
 import { Calendar, CheckCircle2, ChevronLeft, Building2, Users, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { Room, BookingFormState, Booking } from '@church/shared/types';
+import type { Room, BookingFormState } from '@church/shared/types';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { apiFetchPastorStatus } from '@church/shared/api';
-import { Button, SelectField, TextAreaField, TextField } from '../ui';
-
-const TIME_OPTIONS = (() => {
-  const options = [];
-  for (let h = 6; h < 24; h++) {
-    for (let m = 0; m < 60; m += 15) {
-      options.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-    }
-  }
-  options.push('00:00'); // Represents midnight 24:00
-  return options;
-})();
-
-const getMinMaxDates = (isAdmin: boolean, bookingType?: string) => {
-  const today = new Date();
-  const minDate = new Date();
-  if (!isAdmin) minDate.setDate(today.getDate() + 7);
-  const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  let maxDate: Date;
-  if (bookingType === '婚禮' || bookingType === '重要') {
-    maxDate = new Date(today.getFullYear() + 2, today.getMonth(), today.getDate());
-  } else {
-    if (today.getDate() < 15) {
-      maxDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-    } else {
-      maxDate = new Date(today.getFullYear(), today.getMonth() + 2, 0);
-    }
-  }
-  return { minDateStr: fmt(minDate), maxDateStr: fmt(maxDate) };
-};
+import { Button, TextAreaField, TextField } from '../ui';
+import { TIME_OPTIONS, getMinMaxDates } from '../bookingRules';
 
 // ── Time Grid Selector ──────────────────────────────────────────────────
 interface TimeGridSelectorProps {
@@ -206,7 +178,6 @@ interface BookingPageProps {
   currentBranch: string | null;
   isAdmin: boolean;
   rooms: Room[];
-  userBookings?: Booking[];
   bookingStarted: boolean;
   bookingStep: number;
   bookingState: BookingFormState;
@@ -227,13 +198,11 @@ const BOOKING_TYPES = [
   { value: '一般借用', label: '一般借用', desc: '單一場地的日常借用申請' },
   { value: '婚禮', label: '婚禮', desc: '可選多個場地組合' },
   { value: '重要', label: '重要活動', desc: '可選多個場地組合' },
-  { value: '取消或異動', label: '取消或異動', desc: '調整或取消既有的預約' },
 ];
 
 export default function BookingPage({
   getToken,
   isAdmin, rooms,
-  userBookings = [],
   bookingStep,
   bookingState, bookingSubmitting,
   selectedRooms, roomAvailability,
@@ -243,45 +212,6 @@ export default function BookingPage({
   const { minDateStr, maxDateStr } = getMinMaxDates(isAdmin, bookingState.bookingType);
   const [suspendedMonths, setSuspendedMonths] = useState<string[]>([]);
   const isOnline = useOnlineStatus();
-
-  const [selectedBookingId, setSelectedBookingId] = useState<number | null>(null);
-  const [changeReason, setChangeReason] = useState<string>('');
-
-  useEffect(() => {
-    if (bookingState.bookingType !== '取消或異動') {
-      setSelectedBookingId(null);
-      setChangeReason('');
-    }
-  }, [bookingState.bookingType]);
-
-  const handleSelectBooking = (bookingId: number) => {
-    setSelectedBookingId(bookingId);
-    const booking = userBookings.find(b => b.id === bookingId);
-    if (booking) {
-      const room = rooms.find(r => r.id === booking.room_id);
-      if (room) onSelectRooms([room]);
-      onBookingStateChange({
-        ...bookingState,
-        slots: [{ id: '1', date: booking.booking_date, startTime: booking.start_time, endTime: booking.end_time }],
-        attendanceCount: booking.attendance_count || 1,
-        purpose: `【更動的預約】：${booking.booking_date} ${booking.start_time?.substring(0, 5)}-${booking.end_time?.substring(0, 5)} (${booking.room_name || booking.rooms?.name})\n【更動資訊與原因】：${changeReason}`,
-      });
-    } else {
-      onSelectRooms([]);
-      onBookingStateChange({ ...bookingState, slots: [{ id: '1', date: '', startTime: '', endTime: '' }], attendanceCount: 1, purpose: '' });
-    }
-  };
-
-  const handleChangeReason = (reason: string) => {
-    setChangeReason(reason);
-    const booking = userBookings.find(b => b.id === selectedBookingId);
-    if (booking) {
-      onBookingStateChange({
-        ...bookingState,
-        purpose: `【更動的預約】：${booking.booking_date} ${booking.start_time?.substring(0, 5)}-${booking.end_time?.substring(0, 5)} (${booking.room_name || booking.rooms?.name})\n【更動資訊與原因】：${reason}`,
-      });
-    }
-  };
 
   const uniqueMonths = useMemo(() => Array.from(new Set(
     bookingState.slots.map(s => s.date).filter(Boolean).map(d => d.substring(0, 7))
@@ -327,9 +257,8 @@ export default function BookingPage({
   }, {} as Record<string, Room[]>);
 
   const isSpecial = bookingState.bookingType === '婚禮' || bookingState.bookingType === '重要';
-  const isCancelFlow = bookingState.bookingType === '取消或異動';
   const hasCompleteSlot = bookingState.slots.length > 0 && bookingState.slots.every(s => s.date && s.startTime && s.endTime);
-  const totalSteps = isCancelFlow ? 2 : 6;
+  const totalSteps = 6;
   const submitBlocked = !isOnline || bookingSubmitting || (!isAdmin && suspendedMonths.length > 0);
 
   const [error, setError] = useState('');
@@ -353,7 +282,6 @@ export default function BookingPage({
         total={totalSteps}
         title={
           bookingStep === 1 ? '選擇借用類型'
-            : isCancelFlow ? '選擇要更動的預約'
             : bookingStep === 2 ? '借用人資料'
             : bookingStep === 3 ? '選擇日期與時段'
             : bookingStep === 4 ? '選擇場地'
@@ -391,50 +319,22 @@ export default function BookingPage({
           </motion.div>
         )}
 
-        {/* Step 2: 借用人資料 / 取消異動 */}
+        {/* Step 2: 借用人資料 */}
         {bookingStep === 2 && (
           <motion.div key="s2" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.2 }} className="mt-4 space-y-4">
-            {isCancelFlow ? (
-              <>
-                <SelectField
-                  label="選擇要更動的預約"
-                  required
-                  value={selectedBookingId || ''}
-                  onChange={e => handleSelectBooking(Number(e.target.value))}
-                >
-                  <option value="">-- 請選擇 --</option>
-                  {userBookings.filter(b => b.status !== 'rejected').map(b => (
-                    <option key={b.id} value={b.id}>
-                      [{b.booking_date} {b.start_time?.substring(0, 5)}-{b.end_time?.substring(0, 5)}] {b.room_name || b.rooms?.name}（{b.status === 'approved' ? '已核可' : '審核中'}）
-                    </option>
-                  ))}
-                </SelectField>
-                <TextAreaField
-                  label="更動資訊與原因"
-                  required
-                  value={changeReason}
-                  onChange={e => handleChangeReason(e.target.value)}
-                  placeholder="請寫下您要更動的詳細時段、場地，或是取消原因。"
-                  rows={4}
-                />
-              </>
-            ) : (
-              <>
-                <TextField label="借用人姓名" required value={bookingState.fullName} onChange={e => onBookingStateChange({ ...bookingState, fullName: e.target.value })} placeholder="您的真實姓名" />
-                <TextField label="聯絡電話" required type="tel" value={bookingState.phone} onChange={e => onBookingStateChange({ ...bookingState, phone: e.target.value })} placeholder="聯絡電話" />
-                <TextField label="所屬牧區" required value={bookingState.pastoralZone} onChange={e => onBookingStateChange({ ...bookingState, pastoralZone: e.target.value })} placeholder="例如：大專青年區" />
-                <TextField
-                  label="預計人數" required type="number" min="1"
-                  value={bookingState.attendanceCount}
-                  onChange={e => onBookingStateChange({ ...bookingState, attendanceCount: parseInt(e.target.value) || 0 })}
-                />
-              </>
-            )}
+            <TextField label="借用人姓名" required value={bookingState.fullName} onChange={e => onBookingStateChange({ ...bookingState, fullName: e.target.value })} placeholder="您的真實姓名" />
+            <TextField label="聯絡電話" required type="tel" value={bookingState.phone} onChange={e => onBookingStateChange({ ...bookingState, phone: e.target.value })} placeholder="聯絡電話" />
+            <TextField label="所屬牧區" required value={bookingState.pastoralZone} onChange={e => onBookingStateChange({ ...bookingState, pastoralZone: e.target.value })} placeholder="例如：大專青年區" />
+            <TextField
+              label="預計人數" required type="number" min="1"
+              value={bookingState.attendanceCount}
+              onChange={e => onBookingStateChange({ ...bookingState, attendanceCount: parseInt(e.target.value) || 0 })}
+            />
           </motion.div>
         )}
 
         {/* Step 3: 日期與時段 */}
-        {bookingStep === 3 && !isCancelFlow && (
+        {bookingStep === 3 && (
           <motion.div key="s3" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.2 }} className="mt-4 space-y-4">
             {suspendedMonths.length > 0 && (
               <div className="p-4 bg-danger/10 rounded-2xl">
@@ -476,7 +376,7 @@ export default function BookingPage({
         )}
 
         {/* Step 4: 選擇場地 */}
-        {bookingStep === 4 && !isCancelFlow && (
+        {bookingStep === 4 && (
           <motion.div key="s4" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.2 }} className="mt-4 space-y-6">
             <p className="text-xs text-ink-soft flex items-center gap-1.5">
               <Building2 size={14} className="text-primary shrink-0" />
@@ -526,7 +426,7 @@ export default function BookingPage({
         )}
 
         {/* Step 5: 用途說明 */}
-        {bookingStep === 5 && !isCancelFlow && (
+        {bookingStep === 5 && (
           <motion.div key="s5" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.2 }} className="mt-4 space-y-4">
             {isSpecial ? (
               selectedRooms.map(room => (
@@ -554,7 +454,7 @@ export default function BookingPage({
         )}
 
         {/* Step 6: 確認送出 */}
-        {bookingStep === 6 && !isCancelFlow && (
+        {bookingStep === 6 && (
           <motion.div key="s6" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.2 }} className="mt-4 space-y-4">
             <div className="card p-4 space-y-3">
               <div className="flex justify-between text-sm"><span className="text-ink-soft">借用類型</span><span className="font-bold text-ink">{bookingState.bookingType}</span></div>
@@ -577,16 +477,7 @@ export default function BookingPage({
       <StickyFooter>
         {bookingStep === 1 && <div className="text-center text-xs text-ink-faint py-2">請選擇上方任一借用類型繼續</div>}
 
-        {bookingStep === 2 && isCancelFlow && (
-          <Button variant="primary" fullWidth onClick={() => {
-            if (!selectedBookingId) { setError('請選擇要更動的預約'); return; }
-            if (!changeReason.trim()) { setError('請填寫更動資訊與原因'); return; }
-            setError('');
-            onConfirm();
-          }}>送出取消或異動申請</Button>
-        )}
-
-        {bookingStep === 2 && !isCancelFlow && (
+        {bookingStep === 2 && (
           <Button variant="primary" fullWidth onClick={() => goNext(() => {
             if (!bookingState.fullName || !bookingState.phone || !bookingState.pastoralZone) return '請填寫借用人姓名、聯絡電話與所屬牧區';
             if (!bookingState.attendanceCount || bookingState.attendanceCount <= 0) return '預計人數必須大於 0';

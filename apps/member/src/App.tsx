@@ -18,6 +18,7 @@ import BranchPickerPage from './pages/BranchPickerPage';
 import { parseTabParam, type MemberTab } from './navigation';
 
 import { useBooking } from './hooks/useBooking';
+import { useBookingManage } from './hooks/useBookingManage';
 import { useIssueReport } from './hooks/useIssueReport';
 import { useProfile } from './hooks/useProfile';
 
@@ -99,6 +100,14 @@ export default function App() {
         phone: formData.phone,
         pastoral_zone: formData.pastoralZone,
       });
+    },
+  });
+
+  const bookingManage = useBookingManage({
+    getToken,
+    onChanged: (message) => {
+      bookingHook.setStatusMsg({ type: 'success', text: message });
+      fetchBookings();
     },
   });
 
@@ -287,7 +296,6 @@ export default function App() {
             currentBranch={currentBranch}
             isAdmin={isAdmin}
             rooms={rooms}
-            userBookings={bookings}
             bookingStarted={bookingHook.bookingStarted}
             bookingStep={bookingHook.bookingStep}
             bookingState={bookingHook.bookingState}
@@ -325,6 +333,11 @@ export default function App() {
             userProfile={userProfile}
             currentBranch={currentBranch}
             bookings={bookings}
+            rooms={rooms}
+            canBypassSevenDays={role !== 'user'}
+            manageBusy={bookingManage.busy}
+            onUpdateBooking={(booking, input) => bookingManage.updateBooking(booking.id, input)}
+            onCancelBooking={(booking) => bookingManage.cancelBooking(booking.id)}
             onOpenProfile={profileHook.openProfile}
             onSwitchBranch={() => {
               setCurrentBranch(null);

@@ -10,10 +10,12 @@ const { supabase } = require('../database');
  * 2. Overlap conflicts - searches for overlapping bookings in the database for target room
  *    as well as parent/child rooms.
  * Generates context.bookingsToInsert and context.skippedDuplicatesCount.
+ * When context.excludeBookingId is set (editing an existing booking), that booking
+ * is ignored in both checks so it does not conflict with itself.
  */
 class OverlapCheckBlock extends BaseBlock {
   async execute(context) {
-    const { slots, user, cleanFields, roomsToBook, targetRooms } = context;
+    const { slots, user, cleanFields, roomsToBook, targetRooms, excludeBookingId } = context;
     const userEmail = user.email;
     const bookingType = cleanFields.bookingType;
     const cleanFullName = cleanFields.fullName;
@@ -25,41 +27,19 @@ class OverlapCheckBlock extends BaseBlock {
     const bookingsToInsert = [];
     let skippedDuplicatesCount = 0;
 
-    if (bookingType === '取消或異動') {
-      for (const item of roomsToBook) {
-        const { roomId: rId, cleanPurpose } = item;
-        slots.forEach(s => {
-          bookingsToInsert.push({
-            room_id: rId,
-            user_email: userEmail,
-            booking_date: s.date,
-            start_time: s.startTime,
-            end_time: s.endTime,
-            full_name: cleanFullName,
-            phone: cleanPhone,
-            pastoral_zone: cleanPastoralZone,
-            purpose: cleanPurpose,
-            booking_type: bookingType,
-            attendance_count: Number(attendanceCount) || 0
-          });
-        });
-      }
-      context.bookingsToInsert = bookingsToInsert;
-      context.skippedDuplicatesCount = 0;
-      return;
-    }
-
     for (const item of roomsToBook) {
       const { roomId: rId, cleanPurpose } = item;
 
       // 1. Fetch user's existing bookings for this room on the slot dates to filter out identical duplicate requests
-      const { data: existingBookings, error: fetchExistingError } = await supabase
+      let existingQuery = supabase
         .from('bookings')
         .select('room_id, booking_date, start_time, end_time, user_email, full_name, phone, pastoral_zone, purpose, booking_type, attendance_count')
         .eq('room_id', rId)
         .eq('user_email', userEmail)
         .in('booking_date', slotDates)
         .neq('status', 'rejected');
+      if (excludeBookingId) existingQuery = existingQuery.neq('id', excludeBookingId);
+      const { data: existingBookings, error: fetchExistingError } = await existingQuery;
 
       if (fetchExistingError) {
         console.error('Fetch existing bookings error:', fetchExistingError);
@@ -119,7 +99,7 @@ class OverlapCheckBlock extends BaseBlock {
 
         for (let i = 0; i < uniqueSlotsForRoom.length; i++) {
           const s = uniqueSlotsForRoom[i];
-          const { data: overlapping, error: overlapError } = await supabase
+          let overlapQuery = supabase
             .from('bookings')
             .select('id, room_id, rooms(name)')
             .in('room_id', relatedRoomIds)
@@ -127,6 +107,8 @@ class OverlapCheckBlock extends BaseBlock {
             .lt('start_time', s.endTime)
             .gt('end_time', s.startTime)
             .neq('status', 'rejected');
+          if (excludeBookingId) overlapQuery = overlapQuery.neq('id', excludeBookingId);
+          const { data: overlapping, error: overlapError } = await overlapQuery;
 
           if (overlapError) {
             console.error('Overlap check error:', overlapError);
