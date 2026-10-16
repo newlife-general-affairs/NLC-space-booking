@@ -47,6 +47,11 @@ export function useBooking({ rooms, currentBranch, isAdmin, userEmail, getToken,
     bookingDraftService.load(draftKey)
       .then((draft) => {
         if (!active || !draft) return;
+        // 舊版「取消或異動」流程已移除（改在借用紀錄直接修改），留下的草稿直接丟棄
+        if (draft.form.bookingType === '取消或異動') {
+          void bookingDraftService.clear(draftKey);
+          return;
+        }
         setBookingState(draft.form);
         setRoomPurposes(draft.roomPurposes);
         setBookingStep(draft.bookingStep);
@@ -182,86 +187,82 @@ export function useBooking({ rooms, currentBranch, isAdmin, userEmail, getToken,
     }
 
     // 前端時段驗證
-    if (bookingState.bookingType !== '取消或異動') {
-      for (const s of bookingState.slots) {
-        const startMins = parseInt(s.startTime.split(':')[0]) * 60 + parseInt(s.startTime.split(':')[1]);
-        let endMins = parseInt(s.endTime.split(':')[0]) * 60 + parseInt(s.endTime.split(':')[1]);
-        if (s.endTime === '00:00') endMins = 24 * 60;
+    for (const s of bookingState.slots) {
+      const startMins = parseInt(s.startTime.split(':')[0]) * 60 + parseInt(s.startTime.split(':')[1]);
+      let endMins = parseInt(s.endTime.split(':')[0]) * 60 + parseInt(s.endTime.split(':')[1]);
+      if (s.endTime === '00:00') endMins = 24 * 60;
 
-        if (endMins - startMins < 60) {
-          setStatusMsg({ type: 'error', text: `❌ 時段 ${s.date} ${s.startTime}-${s.endTime}：借用時間最少必須為 1 小時以上` });
-          return;
-        }
-
-        if (!isAdmin) {
-          const [yr, mo, dy] = s.date.split('-').map(Number);
-          const bookingTime = new Date(yr, mo - 1, dy).getTime();
-          const todayTime = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
-          if ((bookingTime - todayTime) < 7 * 24 * 60 * 60 * 1000) {
-            setStatusMsg({ type: 'error', text: `❌ 時段 ${s.date}：新增或異動借用需在一週（7天）前申請。` });
-            return;
-          }
-        }
-
-        const [yr, mo, dy] = s.date.split('-').map(Number);
-        const dayOfWeek = new Date(yr, mo - 1, dy).getDay();
-        
-        const isVirtual = selectedRooms.some(r => r.name === '💒 由教會分配');
-        const isSulin = selectedRooms.some(r => r.branch === '士林堂');
-
-        if (isSulin && !isVirtual) {
-          const isValidSlot =
-            (dayOfWeek === 3 && startMins >= 19 * 60 && endMins <= 21 * 60 + 30) ||
-            (dayOfWeek === 4 && startMins >= 19 * 60 && endMins <= 21 * 60 + 30) ||
-            (dayOfWeek === 6 && startMins >= 10 * 60 && endMins <= 18 * 60);
-          if (!isValidSlot) {
-            setStatusMsg({ type: 'error', text: `❌ 時段 ${s.date} ${s.startTime}-${s.endTime}：士林會堂常規借用僅限：週三 19:00-21:30、週四 19:00-21:30、週六 10:00-18:00。` });
-            return;
-          }
-        } else {
-          if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-            if (startMins < 6 * 60 + 30 || endMins > 22 * 60 + 30) {
-              setStatusMsg({ type: 'error', text: `❌ 時段 ${s.date}：週一至週五預約時間必須在 06:30 至 22:30 之間` });
-              return;
-            }
-          } else if (dayOfWeek === 6) {
-            if (startMins < 6 * 60 + 30 || endMins > 18 * 60) {
-              setStatusMsg({ type: 'error', text: `❌ 時段 ${s.date}：週六預約時間必須在 06:30 至 18:00 之間 (包含晨間時段)` });
-              return;
-            }
-          } else if (dayOfWeek === 0) {
-            if (startMins < 6 * 60 + 30 || endMins > 17 * 60 + 30) {
-              setStatusMsg({ type: 'error', text: `❌ 時段 ${s.date}：週日預約時間必須在 06:30 至 17:30 之間 (包含晨間時段)` });
-              return;
-            }
-          }
-        }
-      if (!navigator.onLine) {
-        setStatusMsg({
-          type: 'error',
-          text: '網路已斷線，請檢查網路連線',
-        });
+      if (endMins - startMins < 60) {
+        setStatusMsg({ type: 'error', text: `❌ 時段 ${s.date} ${s.startTime}-${s.endTime}：借用時間最少必須為 1 小時以上` });
         return;
       }
+
+      if (!isAdmin) {
+        const [yr, mo, dy] = s.date.split('-').map(Number);
+        const bookingTime = new Date(yr, mo - 1, dy).getTime();
+        const todayTime = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
+        if ((bookingTime - todayTime) < 7 * 24 * 60 * 60 * 1000) {
+          setStatusMsg({ type: 'error', text: `❌ 時段 ${s.date}：新增或異動借用需在一週（7天）前申請。` });
+          return;
+        }
       }
+
+      const [yr, mo, dy] = s.date.split('-').map(Number);
+      const dayOfWeek = new Date(yr, mo - 1, dy).getDay();
+      
+      const isVirtual = selectedRooms.some(r => r.name === '💒 由教會分配');
+      const isSulin = selectedRooms.some(r => r.branch === '士林堂');
+
+      if (isSulin && !isVirtual) {
+        const isValidSlot =
+          (dayOfWeek === 3 && startMins >= 19 * 60 && endMins <= 21 * 60 + 30) ||
+          (dayOfWeek === 4 && startMins >= 19 * 60 && endMins <= 21 * 60 + 30) ||
+          (dayOfWeek === 6 && startMins >= 10 * 60 && endMins <= 18 * 60);
+        if (!isValidSlot) {
+          setStatusMsg({ type: 'error', text: `❌ 時段 ${s.date} ${s.startTime}-${s.endTime}：士林會堂常規借用僅限：週三 19:00-21:30、週四 19:00-21:30、週六 10:00-18:00。` });
+          return;
+        }
+      } else {
+        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+          if (startMins < 6 * 60 + 30 || endMins > 22 * 60 + 30) {
+            setStatusMsg({ type: 'error', text: `❌ 時段 ${s.date}：週一至週五預約時間必須在 06:30 至 22:30 之間` });
+            return;
+          }
+        } else if (dayOfWeek === 6) {
+          if (startMins < 6 * 60 + 30 || endMins > 18 * 60) {
+            setStatusMsg({ type: 'error', text: `❌ 時段 ${s.date}：週六預約時間必須在 06:30 至 18:00 之間 (包含晨間時段)` });
+            return;
+          }
+        } else if (dayOfWeek === 0) {
+          if (startMins < 6 * 60 + 30 || endMins > 17 * 60 + 30) {
+            setStatusMsg({ type: 'error', text: `❌ 時段 ${s.date}：週日預約時間必須在 06:30 至 17:30 之間 (包含晨間時段)` });
+            return;
+          }
+        }
+      }
+    if (!navigator.onLine) {
+      setStatusMsg({
+        type: 'error',
+        text: '網路已斷線，請檢查網路連線',
+      });
+      return;
+    }
     }
 
     setBookingSubmitting(true);
-    if (bookingState.bookingType !== '取消或異動') {
-      const availabilityResults = await Promise.all(
-        bookingState.slots.map((slot) =>
-          apiCheckAvailability(slot.date, slot.startTime, slot.endTime),
-        ),
-      );
-      const bookedRoomIds = new Set(availabilityResults.flat());
-      const conflictingRooms = selectedRooms.filter((room) => bookedRoomIds.has(room.id));
-      if (conflictingRooms.length > 0) {
-        setStatusMsg({
-          type: 'error',
-          text: `❌ 場地「${conflictingRooms.map((room) => room.name).join('、')}」在此時段已被預約！`,
-        });
-        return;
-      }
+    const availabilityResults = await Promise.all(
+      bookingState.slots.map((slot) =>
+        apiCheckAvailability(slot.date, slot.startTime, slot.endTime),
+      ),
+    );
+    const bookedRoomIds = new Set(availabilityResults.flat());
+    const conflictingRooms = selectedRooms.filter((room) => bookedRoomIds.has(room.id));
+    if (conflictingRooms.length > 0) {
+      setStatusMsg({
+        type: 'error',
+        text: `❌ 場地「${conflictingRooms.map((room) => room.name).join('、')}」在此時段已被預約！`,
+      });
+      return;
     }
     try {
       const payload: BookingCreatePayload = {

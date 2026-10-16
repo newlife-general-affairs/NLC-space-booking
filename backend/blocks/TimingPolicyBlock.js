@@ -46,10 +46,6 @@ class TimingPolicyBlock extends BaseBlock {
     }
     context.targetRooms = targetRooms;
 
-    if (bookingType === '取消或異動') {
-      return;
-    }
-
     // Setup date limits
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
