@@ -58,9 +58,12 @@ jest.mock('../database', () => {
   };
 });
 
+const DEFAULT_USER = { id: 'u1', email: 'me@test', role: 'user', branch: null };
+let mockCurrentUser = DEFAULT_USER;
+
 jest.mock('../authMiddleware', () => ({
   authMiddleware: (req, res, next) => {
-    req.user = { id: 'u1', email: 'me@test', role: 'user', branch: null };
+    req.user = { ...mockCurrentUser };
     next();
   },
   optionalAuthMiddleware: (req, res, next) => next(),
@@ -134,6 +137,7 @@ afterAll(() => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockCurrentUser = DEFAULT_USER;
   state.booking = { ...APPROVED_BOOKING, rooms: { ...APPROVED_BOOKING.rooms } };
   state.rooms = [
     { id: 1, name: 'B2-第五教室', branch: '仁愛堂', parent_room_id: null },
@@ -270,5 +274,59 @@ describe('POST /api/bookings/:id/cancel', () => {
       tuya_password_id: null,
       rejection_reason: '使用者自行取消',
     });
+  });
+
+  const cancelAs = (user) => {
+    mockCurrentUser = { id: 'u2', email: 'staff@test', ...user };
+    return request(makeApp()).post('/api/bookings/5/cancel');
+  };
+
+  test('查察員取消他人的預約 → 404，不寫入', async () => {
+    const res = await cancelAs({ role: 'inspector', branch: '仁愛堂' });
+
+    expect(res.status).toBe(404);
+    expect(state.updated).toBeNull();
+  });
+
+  test('其他據點的管理員取消 → 404，不寫入', async () => {
+    const res = await cancelAs({ role: 'admin', branch: '士林堂' });
+
+    expect(res.status).toBe(404);
+    expect(state.updated).toBeNull();
+  });
+
+  test('同據點的管理員取消 → 記為管理員取消', async () => {
+    const res = await cancelAs({ role: 'admin', branch: '仁愛堂' });
+
+    expect(res.status).toBe(200);
+    expect(state.updated).toMatchObject({ status: 'rejected', rejection_reason: '管理員取消' });
+  });
+
+  test('全據點的管理員取消 → 可以', async () => {
+    const res = await cancelAs({ role: 'admin', branch: '全' });
+
+    expect(res.status).toBe(200);
+  });
+
+  test('系統管理員取消 → 可以', async () => {
+    const res = await cancelAs({ role: 'system_admin', branch: null });
+
+    expect(res.status).toBe(200);
+  });
+
+  test('一般使用者取消他人的預約 → 404', async () => {
+    const res = await cancelAs({ role: 'user', branch: null });
+
+    expect(res.status).toBe(404);
+    expect(state.updated).toBeNull();
+  });
+
+  test('查察員取消自己的預約 → 可以', async () => {
+    state.booking.user_email = 'staff@test';
+
+    const res = await cancelAs({ role: 'inspector', branch: '仁愛堂' });
+
+    expect(res.status).toBe(200);
+    expect(state.updated).toMatchObject({ rejection_reason: '使用者自行取消' });
   });
 });
