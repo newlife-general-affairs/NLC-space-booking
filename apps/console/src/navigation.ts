@@ -14,7 +14,6 @@ export type PageId =
   | 'overview'
   | 'bookings-review'
   | 'bookings-form-intake'
-  | 'bookings-sheet-import'
   | 'schedule-week'
   | 'schedule-events'
   | 'schedule-map'
@@ -63,7 +62,6 @@ export const NAV_SECTIONS: NavSection[] = [
     pages: [
       { id: 'bookings-review', label: '預約審核', roles: STAFF },
       { id: 'bookings-form-intake', label: '表單匯入紀錄', roles: STAFF },
-      { id: 'bookings-sheet-import', label: '試算表匯入', roles: STAFF },
     ],
   },
   {

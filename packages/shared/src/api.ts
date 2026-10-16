@@ -70,13 +70,6 @@ export const apiBatchDeleteRooms = (token: string, ids: number[]) =>
     body: JSON.stringify({ ids }),
   });
 
-export const apiImportRoomsFromSheet = (token: string, sheetUrl: string) =>
-  fetch('/api/rooms/import-sheets', {
-    method: 'POST',
-    headers: jsonHeaders(token),
-    body: JSON.stringify({ sheetUrl }),
-  });
-
 // ── 公共空間 ──────────────────────────────────────────────────
 
 export const apiFetchPublicSpaces = (branch?: string) =>

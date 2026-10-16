@@ -11,7 +11,7 @@
 | `apps/member` | 使用者端：預約、查檔期、借用紀錄 | http://localhost:5173 |
 | `apps/console` | 管理後台：審核、檔期、現場管理、設定 | http://localhost:5174 |
 | `packages/shared` | 共用程式 `@church/shared`：登入、API、週看板、婚禮與重要活動 | — |
-| `backend` | Express API：預約管線、Tuya、Email、試算表匯入 | http://localhost:3001 |
+| `backend` | Express API：預約管線、Tuya、Email、表單匯入 | http://localhost:3001 |
 
 前端以 npm workspaces 管理（`apps/*`、`packages/*`）；`backend` 不在 workspace 內，相依套件另外安裝。
 
@@ -46,7 +46,6 @@
 | 總覽 | 今日總覽 | 待審核、有衝突、待分配打掃、待清潔檢查、未處理故障等待辦數字，以及今日借用 |
 | 預約 | 預約審核 | 待審核／有衝突／審核通過／已過期；可為「由教會分配」的申請指派實際場地，衝突可拖曳調整 |
 | | 表單匯入紀錄 | Google 表單經 Apps Script 自動匯入的申請紀錄 |
-| | 試算表匯入 | 貼上公開的 Google 試算表網址，覆蓋匯入整季排表；有衝突的時段自動改為待審核 |
 | 檔期 | 週看板 | 各場地一週檔期 |
 | | 婚禮與重要活動 | 檢視與編輯婚禮、重要活動 |
 | | 平面地圖 | SVG 平面圖以燈號顯示各空間目前使用狀況，可編輯場地區塊座標 |
@@ -76,8 +75,8 @@
 ## 🛠️ 技術棧
 
 * **前端**：React 19、TypeScript、Vite 7、Tailwind CSS 3、Lucide Icons；member 另用 React Router、Framer Motion
-* **後端**：Express (Node.js)、Supabase（資料庫與登入）、Nodemailer、xlsx
-* **外部整合**：Tuya IoT 智慧鎖、Google 試算表、Google 表單（Apps Script）
+* **後端**：Express (Node.js)、Supabase（資料庫與登入）、Nodemailer
+* **外部整合**：Tuya IoT 智慧鎖、Google 表單（Apps Script）
 
 ---
 
