@@ -25,7 +25,6 @@ import type { NavSection, PageId } from './navigation';
 const OverviewPage = lazy(() => import('./pages/admin/OverviewPage'));
 const BookingsTab = lazy(() => import('./pages/admin/BookingsTab'));
 const FormIntakeTab = lazy(() => import('./pages/admin/FormIntakeTab'));
-const SheetImportPage = lazy(() => import('./pages/admin/SheetImportPage'));
 const IssuesTab = lazy(() => import('./pages/admin/IssuesTab'));
 const ViolationsTab = lazy(() => import('./pages/admin/ViolationsTab'));
 const AnnouncementsTab = lazy(() => import('./pages/admin/AnnouncementsTab'));
@@ -139,8 +138,6 @@ export default function AdminPanel({ currentBranch, role }: AdminPanelProps) {
         return <BookingsTab key="review" tabMode="bookings" data={data as Booking[]} getToken={getToken} onRefresh={handleRefresh} />;
       case 'bookings-form-intake':
         return <FormIntakeTab getToken={getToken} />;
-      case 'bookings-sheet-import':
-        return <SheetImportPage getToken={getToken} />;
       case 'schedule-week':
         return <WeeklyBulletin currentBranch={currentBranch} isAdmin showSpecialEvents />;
       case 'schedule-events':
