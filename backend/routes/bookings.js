@@ -19,6 +19,18 @@ const OverlapCheckBlock = require('../blocks/OverlapCheckBlock');
 const DbInsertBlock = require('../blocks/DbInsertBlock');
 const EmailNotifyBlock = require('../blocks/EmailNotifyBlock');
 
+/** 使用者自行取消時寫入 rejection_reason，前台據此顯示「已取消」而非「未通過」 */
+const SELF_CANCEL_REASON = '使用者自行取消';
+
+/** 借用日距今天不足 7 天（一般使用者此時不能線上取消或修改） */
+const isWithinSevenDays = (bookingDateStr) => {
+  const [yr, mo, dy] = bookingDateStr.split('-').map(Number);
+  const bookingTime = new Date(yr, mo - 1, dy).getTime();
+  const today = new Date();
+  const todayTime = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  return (bookingTime - todayTime) < 7 * 24 * 60 * 60 * 1000;
+};
+
 // 💡 密碼過期清理機制：自動回收已結束場地之密碼，節省資料庫儲存空間並落實安全限制
 const cleanExpiredPasscodes = async () => {
   try {
@@ -325,7 +337,7 @@ router.get('/', authMiddleware, async (req, res) => {
     return res.json([]);
   }
   
-  let query = supabase.from('bookings').select(`id, room_id, user_email, full_name, phone, pastoral_zone, purpose, booking_type, attendance_count, booking_date, start_time, end_time, is_returned, access_code, tuya_password_id, created_at, status, cleaning_assignments, rooms!inner(name, branch, tuya_device_id)`)
+  let query = supabase.from('bookings').select(`id, room_id, user_email, full_name, phone, pastoral_zone, purpose, booking_type, attendance_count, booking_date, start_time, end_time, is_returned, access_code, tuya_password_id, created_at, status, rejection_reason, cleaning_assignments, rooms!inner(name, branch, tuya_device_id)`)
     .order('booking_date', { ascending: false }).order('start_time', { ascending: false });
 
   // ALWAYS filter by logged-in user's email, so even admins only see their own records on the frontend
@@ -378,6 +390,133 @@ router.post('/', authMiddleware, async (req, res) => {
   }
 });
 
+// 使用者編輯自己的預約（日期、時段、場地、人數、用途）
+// 已核准的預約若改了時間或場地，會退回待審核、清除門鎖密碼，並依天數記「變更」違規
+router.put('/:id', authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const { date, startTime, endTime, roomId, purpose, attendanceCount } = req.body;
+
+  try {
+    const { data: booking, error: fetchError } = await supabase
+      .from('bookings')
+      .select('*, rooms(name, branch, tuya_device_id)')
+      .eq('id', id)
+      .eq('user_email', req.user.email)
+      .single();
+
+    if (fetchError || !booking) {
+      return res.status(404).json({ error: '找不到該預約，或您無權操作此預約' });
+    }
+    if (booking.status === 'rejected') {
+      return res.status(400).json({ error: '已取消或未通過的預約無法編輯' });
+    }
+    if (booking.is_returned) {
+      return res.status(400).json({ error: '已歸還的預約無法編輯' });
+    }
+    if (!ALLOWED_BOOKING_TYPES.includes(booking.booking_type || '一般借用')) {
+      return res.status(400).json({ error: '此筆申請無法線上編輯，請聯絡管理單位' });
+    }
+    if (req.user.role === 'user' && isWithinSevenDays(booking.booking_date)) {
+      return res.status(400).json({ error: '❌ 借用日期一週內之取消或異動，請直接向管理單位或值班人員聯絡，無法線上自行修改。' });
+    }
+
+    const newSlot = {
+      date: date || booking.booking_date,
+      startTime: (startTime || booking.start_time).substring(0, 5),
+      endTime: (endTime || booking.end_time).substring(0, 5),
+    };
+    const context = {
+      reqBody: {
+        roomId: roomId || booking.room_id,
+        purpose: purpose !== undefined ? purpose : booking.purpose,
+        attendanceCount: attendanceCount !== undefined ? attendanceCount : booking.attendance_count,
+        fullName: booking.full_name,
+        phone: booking.phone,
+        pastoralZone: booking.pastoral_zone,
+        bookingType: booking.booking_type || '一般借用',
+        slots: [newSlot],
+      },
+      user: req.user,
+      excludeBookingId: booking.id,
+    };
+
+    const pipeline = new BlockPipeline();
+    pipeline
+      .use(new InputValidationBlock())
+      .use(new TimingPolicyBlock());
+    // 停權只限制「新增」該月份的借用；同月份內調整既有預約不受影響
+    if (newSlot.date.substring(0, 7) !== booking.booking_date.substring(0, 7)) {
+      pipeline.use(new SuspensionCheckBlock());
+    }
+    pipeline.use(new OverlapCheckBlock());
+    await pipeline.run(context);
+
+    const targetRoom = context.targetRooms[0];
+    if (booking.rooms && targetRoom.branch !== booking.rooms.branch) {
+      return res.status(400).json({ error: '只能更換為同一據點的場地' });
+    }
+
+    const next = context.bookingsToInsert[0];
+    if (!next) {
+      return res.status(409).json({ error: '修改後的內容與您另一筆預約完全相同' });
+    }
+
+    const isTimeOrRoomChanged =
+      next.booking_date !== booking.booking_date ||
+      next.start_time !== booking.start_time.substring(0, 5) ||
+      next.end_time !== booking.end_time.substring(0, 5) ||
+      Number(next.room_id) !== Number(booking.room_id);
+
+    const updateFields = {
+      booking_date: next.booking_date,
+      start_time: next.start_time,
+      end_time: next.end_time,
+      room_id: next.room_id,
+      purpose: next.purpose,
+      attendance_count: next.attendance_count,
+    };
+
+    const needsReview = booking.status === 'approved' && isTimeOrRoomChanged;
+    if (needsReview) {
+      const { logChangeViolation } = require('../violationsStore');
+      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
+      await logChangeViolation(booking, todayStr);
+
+      if (booking.tuya_password_id && booking.rooms?.tuya_device_id) {
+        try {
+          await deleteLockPasscode(booking.rooms.tuya_device_id, booking.tuya_password_id);
+        } catch (err) {
+          console.error('[Tuya Delete Error on User Edit]', err);
+        }
+      }
+      updateFields.status = 'pending';
+      updateFields.access_code = null;
+      updateFields.tuya_password_id = null;
+    }
+
+    const { data, error: updateError } = await supabase
+      .from('bookings')
+      .update(updateFields)
+      .eq('id', id)
+      .select();
+
+    if (updateError || !data || data.length === 0) {
+      return res.status(500).json({ error: '修改預約失敗，請稍後再試' });
+    }
+
+    res.json({
+      booking: data[0],
+      message: needsReview ? '預約已修改，將重新送交審核' : '預約已修改',
+    });
+  } catch (error) {
+    if (error instanceof BookingError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('[Update Booking Error]', error);
+    res.status(500).json({ error: '修改預約失敗，請稍後再試' });
+  }
+});
+
 // 取消預約
 router.post('/:id/cancel', authMiddleware, async (req, res) => {
   const { id } = req.params;
@@ -399,14 +538,7 @@ router.post('/:id/cancel', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: '該預約已經是取消或拒絕狀態' });
     }
 
-    const bookingDateStr = booking.booking_date;
-    const [bYr, bMo, bDy] = bookingDateStr.split('-').map(Number);
-    const bookingTime = new Date(bYr, bMo - 1, bDy).getTime();
-    
-    const today = new Date();
-    const todayTime = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-    
-    if (userRole === 'user' && (bookingTime - todayTime) < 7 * 24 * 60 * 60 * 1000) {
+    if (userRole === 'user' && isWithinSevenDays(booking.booking_date)) {
       return res.status(400).json({ error: '❌ 借用日期一週內之取消或異動，請直接向管理單位或值班人員聯絡，無法線上自行取消。' });
     }
 
@@ -426,7 +558,12 @@ router.post('/:id/cancel', authMiddleware, async (req, res) => {
 
     const { error: updateError } = await supabase
       .from('bookings')
-      .update({ status: 'rejected', access_code: null, tuya_password_id: null })
+      .update({
+        status: 'rejected',
+        access_code: null,
+        tuya_password_id: null,
+        rejection_reason: booking.user_email === userEmail ? SELF_CANCEL_REASON : '管理員取消'
+      })
       .eq('id', id);
 
     if (updateError) {

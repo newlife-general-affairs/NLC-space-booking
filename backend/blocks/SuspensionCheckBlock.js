@@ -14,10 +14,6 @@ class SuspensionCheckBlock extends BaseBlock {
     const userRole = user.role;
     const cleanPastoralZone = cleanFields.pastoralZone;
 
-    if (cleanFields.bookingType === '取消或異動') {
-      return;
-    }
-
     if (userRole === 'user') {
       for (let i = 0; i < slots.length; i++) {
         const s = slots[i];

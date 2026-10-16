@@ -1,13 +1,24 @@
 import { useState } from 'react';
-import { ClipboardList, Eye, EyeOff, KeyRound, ListFilter, Wrench } from 'lucide-react';
-import type { Booking } from '@church/shared/types';
+import { ClipboardList, Eye, EyeOff, KeyRound, ListFilter, Pencil, Wrench, XCircle } from 'lucide-react';
+import type { Booking, Room } from '@church/shared/types';
 import { EmptyState, ListRow, SegmentedControl, Sheet, StatusPill, Button } from '../ui';
+import EditBookingSheet from '../components/EditBookingSheet';
+import type { BookingEditInput, ManageResult } from '../hooks/useBookingManage';
 
 interface RecordsPageProps {
   bookings: Booking[];
+  rooms: Room[];
+  /** 非一般使用者（同工）不受「借用日 7 天內不能線上修改／取消」限制 */
+  canBypassSevenDays: boolean;
+  manageBusy: boolean;
+  onUpdateBooking: (booking: Booking, input: BookingEditInput) => Promise<ManageResult>;
+  onCancelBooking: (booking: Booking) => Promise<ManageResult>;
   onStartCleanup: (booking: Booking) => void;
   onReportIssue: (booking: Booking) => void;
 }
+
+/** 與後端 SELF_CANCEL_REASON 一致 */
+const SELF_CANCEL_REASON = '使用者自行取消';
 
 type Segment = 'upcoming' | 'cleanup' | 'completed' | 'rejected';
 
@@ -15,7 +26,7 @@ const SEGMENT_LABEL: Record<Segment, string> = {
   upcoming: '即將到來',
   cleanup: '待清潔歸還',
   completed: '已完成',
-  rejected: '未通過',
+  rejected: '取消／未通過',
 };
 
 // Helper to determine if a booking is overdue for return (1 hour past end time)
@@ -88,6 +99,21 @@ const hasEnded = (dateStr: string, endTimeStr: string) => {
   } catch { return false; }
 };
 
+const isWithinSevenDays = (dateStr: string) => {
+  const [yr, mo, dy] = dateStr.split('-').map(Number);
+  const bookingTime = new Date(yr, mo - 1, dy).getTime();
+  const now = new Date();
+  const todayTime = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return bookingTime - todayTime < 7 * 24 * 60 * 60 * 1000;
+};
+
+/** 尚未開始、未取消、未歸還的預約才能修改或取消；表單匯入的「取消或異動」申請不算 */
+const canModify = (row: Booking) =>
+  row.status !== 'rejected' &&
+  !row.is_returned &&
+  row.booking_type !== '取消或異動' &&
+  !hasStarted(row.booking_date, row.start_time);
+
 function parseCleaning(row: Booking) {
   const parts = (row.cleaning_assignments || '').split('::');
   return { text: parts[0] || '', state: parts[1] || '' };
@@ -100,13 +126,39 @@ function getSegment(row: Booking): Segment {
   return 'upcoming';
 }
 
-export default function RecordsPage({ bookings, onStartCleanup, onReportIssue }: RecordsPageProps) {
+export default function RecordsPage({
+  bookings, rooms, canBypassSevenDays, manageBusy,
+  onUpdateBooking, onCancelBooking, onStartCleanup, onReportIssue,
+}: RecordsPageProps) {
   const [segment, setSegment] = useState<Segment>('upcoming');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRoom, setSelectedRoom] = useState('');
   const [revealedIds, setRevealedIds] = useState<number[]>([]);
   const [detail, setDetail] = useState<Booking | null>(null);
+  const [editing, setEditing] = useState<Booking | null>(null);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [detailError, setDetailError] = useState('');
+
+  const openDetail = (row: Booking | null) => {
+    setDetail(row);
+    setConfirmingCancel(false);
+    setDetailError('');
+  };
+
+  const handleCancel = async () => {
+    if (!detail) return;
+    const result = await onCancelBooking(detail);
+    if (result.ok) openDetail(null);
+    else setDetailError(result.message);
+  };
+
+  const handleUpdate = async (input: BookingEditInput): Promise<ManageResult> => {
+    if (!editing) return { ok: false, message: '' };
+    const result = await onUpdateBooking(editing, input);
+    if (result.ok) setEditing(null);
+    return result;
+  };
 
   const toggleReveal = (id: number) =>
     setRevealedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -131,6 +183,8 @@ export default function RecordsPage({ bookings, onStartCleanup, onReportIssue }:
 
   const detailCleaning = detail ? parseCleaning(detail) : null;
   const detailOverdue = detail ? isOverdue(detail.booking_date, detail.end_time) : false;
+  const detailModifiable = detail ? canModify(detail) : false;
+  const detailLocked = detail ? !canBypassSevenDays && isWithinSevenDays(detail.booking_date) : false;
 
   return (
     <div className="pt-3 pb-1 space-y-4">
@@ -179,17 +233,18 @@ export default function RecordsPage({ bookings, onStartCleanup, onReportIssue }:
             return (
               <ListRow
                 key={row.id}
-                onClick={() => setDetail(row)}
+                onClick={() => openDetail(row)}
                 title={row.room_name}
                 subtitle={`${row.booking_date} · ${row.start_time.substring(0, 5)}-${row.end_time.substring(0, 5)}`}
                 icon={<KeyRound size={16} />}
                 trailing={
-                  row.is_returned ? <StatusPill tone="success" label="歸還成功" />
+                  row.status === 'rejected'
+                    ? row.rejection_reason === SELF_CANCEL_REASON ? <StatusPill tone="muted" label="已取消" /> : <StatusPill tone="danger" label="未通過" />
+                  : row.is_returned ? <StatusPill tone="success" label="歸還成功" />
                   : cleaning.state === 'submitted' || cleaning.state === 'resubmitted' ? <StatusPill tone="warning" label="待檢查" pulse />
                   : (row.violation || overdue) ? <StatusPill tone="danger" label="違規記點" />
                   : cleaning.state === 'rejected' ? <StatusPill tone="danger" label="檢查退回" />
                   : row.status === 'pending' ? <StatusPill tone="muted" label="審核中" />
-                  : row.status === 'rejected' ? <StatusPill tone="danger" label="已拒絕" />
                   : <StatusPill tone="success" label="已核可" />
                 }
               />
@@ -198,7 +253,7 @@ export default function RecordsPage({ bookings, onStartCleanup, onReportIssue }:
         </div>
       )}
 
-      <Sheet open={!!detail} onClose={() => setDetail(null)} title={detail?.room_name}>
+      <Sheet open={!!detail} onClose={() => openDetail(null)} dismissible={!manageBusy} title={detail?.room_name}>
         {detail && detailCleaning && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 p-3 bg-surface-sunken rounded-2xl text-sm">
@@ -211,6 +266,12 @@ export default function RecordsPage({ bookings, onStartCleanup, onReportIssue }:
               <div className="flex justify-between"><span className="text-ink-faint">聯絡電話</span><span className="font-bold text-ink">{detail.phone}</span></div>
               <div className="flex justify-between gap-4"><span className="text-ink-faint shrink-0">用途</span><span className="font-bold text-ink text-right">{detail.purpose}（{detail.attendance_count} 人）</span></div>
               {detailCleaning.text && <div className="flex justify-between"><span className="text-ink-faint">打掃指派</span><span className="font-bold text-ink">{detailCleaning.text}</span></div>}
+              {detail.status === 'rejected' && detail.rejection_reason && (
+                <div className="flex justify-between gap-4">
+                  <span className="text-ink-faint shrink-0">{detail.rejection_reason === SELF_CANCEL_REASON ? '狀態' : '未通過原因'}</span>
+                  <span className="font-bold text-ink text-right">{detail.rejection_reason === SELF_CANCEL_REASON ? '已自行取消' : detail.rejection_reason}</span>
+                </div>
+              )}
             </div>
 
             <div className="divider" />
@@ -244,7 +305,7 @@ export default function RecordsPage({ bookings, onStartCleanup, onReportIssue }:
                   variant="primary"
                   fullWidth
                   disabled={!hasStarted(detail.booking_date, detail.start_time)}
-                  onClick={() => { onStartCleanup(detail); setDetail(null); }}
+                  onClick={() => { onStartCleanup(detail); openDetail(null); }}
                 >
                   <Wrench size={16} /> {detailCleaning.state === 'rejected' ? '複檢確認' : '使用完畢確認'}
                 </Button>
@@ -254,15 +315,53 @@ export default function RecordsPage({ bookings, onStartCleanup, onReportIssue }:
                   variant="secondary"
                   fullWidth
                   disabled={getReportIssueDisabledState(detail.booking_date, detail.start_time, detail.end_time).disabled}
-                  onClick={() => { onReportIssue(detail); setDetail(null); }}
+                  onClick={() => { onReportIssue(detail); openDetail(null); }}
                 >
                   回報場地問題
                 </Button>
+              )}
+
+              {detailModifiable && (
+                detailLocked ? (
+                  <p className="text-xs text-ink-faint text-center py-1">借用日 7 天內無法線上修改或取消，請聯絡管理單位或值班人員。</p>
+                ) : confirmingCancel ? (
+                  <div className="p-3 rounded-2xl bg-danger/10 space-y-2.5">
+                    <p className="text-xs text-danger font-semibold leading-relaxed">
+                      確定要取消這筆預約嗎？取消後無法復原{detail.status === 'approved' ? '，門鎖密碼會立即失效' : ''}。
+                    </p>
+                    {detailError && <p className="text-xs text-danger font-bold">{detailError}</p>}
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button variant="secondary" disabled={manageBusy} onClick={() => { setConfirmingCancel(false); setDetailError(''); }}>返回</Button>
+                      <Button variant="danger" loading={manageBusy} onClick={handleCancel}>確定取消</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button variant="secondary" onClick={() => { setEditing(detail); openDetail(null); }}>
+                      <Pencil size={15} /> 修改預約
+                    </Button>
+                    <Button variant="ghost" className="text-danger" onClick={() => setConfirmingCancel(true)}>
+                      <XCircle size={15} /> 取消預約
+                    </Button>
+                  </div>
+                )
               )}
             </div>
           </div>
         )}
       </Sheet>
+
+      {editing && (
+        <EditBookingSheet
+          key={editing.id}
+          booking={editing}
+          rooms={rooms}
+          canBypassSevenDays={canBypassSevenDays}
+          busy={manageBusy}
+          onClose={() => setEditing(null)}
+          onSubmit={handleUpdate}
+        />
+      )}
     </div>
   );
 }

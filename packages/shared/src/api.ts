@@ -70,13 +70,6 @@ export const apiBatchDeleteRooms = (token: string, ids: number[]) =>
     body: JSON.stringify({ ids }),
   });
 
-export const apiImportRoomsFromSheet = (token: string, sheetUrl: string) =>
-  fetch('/api/rooms/import-sheets', {
-    method: 'POST',
-    headers: jsonHeaders(token),
-    body: JSON.stringify({ sheetUrl }),
-  });
-
 // ── 公共空間 ──────────────────────────────────────────────────
 
 export const apiFetchPublicSpaces = (branch?: string) =>
@@ -112,6 +105,21 @@ export const apiFetchBookings = (token: string, branch: string) =>
 export const apiCreateBooking = (token: string, data: object) =>
   fetch('/api/bookings', {
     method: 'POST',
+    headers: jsonHeaders(token),
+    body: JSON.stringify(data),
+  });
+
+/** 使用者編輯自己的預約（日期、時段、場地、人數、用途） */
+export const apiUpdateOwnBooking = (token: string, id: number, data: {
+  date: string;
+  startTime: string;
+  endTime: string;
+  roomId: number;
+  attendanceCount: number;
+  purpose: string;
+}) =>
+  fetch(`/api/bookings/${id}`, {
+    method: 'PUT',
     headers: jsonHeaders(token),
     body: JSON.stringify(data),
   });
