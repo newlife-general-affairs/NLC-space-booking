@@ -524,13 +524,19 @@ router.post('/:id/cancel', authMiddleware, async (req, res) => {
   const userRole = req.user.role;
 
   try {
-    let query = supabase.from('bookings').select('*, rooms(name, branch, tuya_device_id)');
-    if (userRole === 'user') {
-      query = query.eq('user_email', userEmail);
-    }
-    const { data: booking, error: fetchError } = await query.eq('id', id).single();
+    const { data: booking, error: fetchError } = await supabase
+      .from('bookings')
+      .select('*, rooms(name, branch, tuya_device_id)')
+      .eq('id', id)
+      .single();
 
-    if (fetchError || !booking) {
+    // 可取消：預約本人、系統管理員、全據點或同據點的管理員（查察員只能取消自己的）
+    const isOwner = booking?.user_email === userEmail;
+    const canManageBranch =
+      userRole === 'system_admin' ||
+      (userRole === 'admin' && (req.user.branch === '全' || booking?.rooms?.branch === req.user.branch));
+
+    if (fetchError || !booking || (!isOwner && !canManageBranch)) {
       return res.status(404).json({ error: '找不到該預約，或您無權操作此預約' });
     }
 
