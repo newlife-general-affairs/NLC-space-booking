@@ -1,8 +1,8 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
 import { Calendar, CheckCircle2, ChevronLeft, Building2, Users, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { Room, BookingFormState } from '@church/shared/types';
+import type { Room, BookingFormState, BookingSlot } from '@church/shared/types';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { apiFetchPastorStatus } from '@church/shared/api';
 import { Button, TextAreaField, TextField } from '../ui';
@@ -18,6 +18,8 @@ interface TimeGridSelectorProps {
 function TimeGridSelector({ startTime, endTime, onChange }: TimeGridSelectorProps) {
   const [dragStart, setDragStart] = useState<string | null>(null);
   const [tapStart, setTapStart] = useState<string | null>(null);
+  // 按下後真的移到別格才算拖曳；拖曳結束若落在按鈕上會再觸發 click，要略過以免被當成點選
+  const draggedRef = useRef(false);
 
   const timeToMin = (t: string) => {
     if (t === '00:00' || t === '24:00') return 24 * 60;
@@ -58,19 +60,29 @@ function TimeGridSelector({ startTime, endTime, onChange }: TimeGridSelectorProp
     }
   };
 
+  // 只記錄拖曳起點；單純點擊交給 onClick 處理（手機點擊也會先觸發 mousedown，在這裡選取會被接著的 click 當成再點一次而取消）
   const handleMouseDown = (time: string, e: MouseEvent) => {
     if (e.button !== 0) return;
     setDragStart(time);
-    setTapStart(time);
-    onChange(time, getNextTimeSlot(time));
+    draggedRef.current = false;
   };
 
   const handleMouseEnter = (time: string) => {
-    if (!dragStart) return;
+    if (!dragStart || (time === dragStart && !draggedRef.current)) return;
+    draggedRef.current = true;
+    setTapStart(null);
     const startM = timeToMin(dragStart);
     const currM = timeToMin(time);
     if (currM < startM) onChange(time, getNextTimeSlot(dragStart));
     else onChange(dragStart, getNextTimeSlot(time));
+  };
+
+  const handleClick = (time: string) => {
+    if (draggedRef.current) {
+      draggedRef.current = false;
+      return;
+    }
+    handleBlockSelect(time);
   };
 
   useEffect(() => {
@@ -121,7 +133,8 @@ function TimeGridSelector({ startTime, endTime, onChange }: TimeGridSelectorProp
                       type="button"
                       onMouseDown={(e) => handleMouseDown(t, e)}
                       onMouseEnter={() => handleMouseEnter(t)}
-                      onClick={() => handleBlockSelect(t)}
+                      onClick={() => handleClick(t)}
+                      data-no-debounce="true"
                       className={`h-9 rounded-md text-[11px] font-bold border transition-all active:scale-95 ${
                         isSelected
                           ? 'bg-primary border-primary text-primary-ink'
@@ -164,9 +177,10 @@ function StepHeader({ step, total, title, onBack, backLabel }: { step: number; t
   );
 }
 
+// 放在底部導覽列（.mobile-app-nav，高 65px＋安全區域）正上方，避免被蓋住；安全區域由導覽列處理
 function StickyFooter({ children }: { children: ReactNode }) {
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-30 bg-surface/95 backdrop-blur-md border-t border-border px-4 py-3 pb-[calc(12px+env(safe-area-inset-bottom))]">
+    <div className="fixed bottom-[calc(65px+env(safe-area-inset-bottom))] left-0 right-0 z-30 bg-surface/95 backdrop-blur-md border-t border-border px-4 py-3">
       <div className="mx-auto max-w-lg">{children}</div>
     </div>
   );
@@ -238,8 +252,9 @@ export default function BookingPage({
     checkSuspensions();
   }, [bookingState.pastoralZone, uniqueMonths, isAdmin, getToken]);
 
-  const updateSlot = (id: string, field: string, value: string) => {
-    onBookingStateChange({ ...bookingState, slots: bookingState.slots.map(s => s.id === id ? { ...s, [field]: value } : s) });
+  // 一次合併多個欄位：onBookingStateChange 是以目前的 bookingState 組新物件，連續呼叫兩次後者會蓋掉前者
+  const updateSlot = (id: string, patch: Partial<BookingSlot>) => {
+    onBookingStateChange({ ...bookingState, slots: bookingState.slots.map(s => s.id === id ? { ...s, ...patch } : s) });
   };
   const addSlot = () => {
     const newId = Date.now().toString() + Math.random().toString(36).substring(2, 7);
@@ -357,13 +372,13 @@ export default function BookingPage({
                   label="使用日期" type="date" required
                   min={minDateStr} max={maxDateStr}
                   value={slot.date}
-                  onChange={e => updateSlot(slot.id, 'date', e.target.value)}
+                  onChange={e => updateSlot(slot.id, { date: e.target.value })}
                 />
                 {slot.date && (
                   <TimeGridSelector
                     startTime={slot.startTime}
                     endTime={slot.endTime}
-                    onChange={(start, end) => { updateSlot(slot.id, 'startTime', start); updateSlot(slot.id, 'endTime', end); }}
+                    onChange={(start, end) => updateSlot(slot.id, { startTime: start, endTime: end })}
                   />
                 )}
               </div>
